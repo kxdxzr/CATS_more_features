@@ -15,8 +15,6 @@ for the carrier administration and traversal functionality.
   shortcuts. Uncheck `Scheduled start` to start immediately. All scheduled times use your computer's local time.
 - **Completion actions:** keep everything open, close the game and CATS, or shut down the computer through
   Options → `When route completes`.
-- **Stop fixes:** request cancellation, release held automation keys and save progress, with a process-tree
-  termination fallback. Run is enabled only after exit is confirmed; old output and exit callbacks cannot stop a new run.
 - **Startup cooldown recovery:** recover carrier state from recent journals and wait for an existing jump and
   cooldown before navigating, including when a scheduled start is reached.
 - **Resume and journal handling:** synchronize saved progress with the GUI, distinguish historical events from
@@ -45,6 +43,10 @@ for the carrier administration and traversal functionality.
 
 **Stop stops CATS automation; it does not cancel a carrier jump already submitted in the game.**
 Stopping manually or encountering an error does not count as successful route completion and does not trigger a completion action.
+
+Changing this fork's backend to a onefile executable introduced a Stop regression: the Python child process
+could survive after the launcher was stopped. This beta includes a fix for that regression, which still needs
+broader in-game testing; it is not presented as an upstream CATS defect or a new feature.
 
 ### Configuration compatibility and testing status
 
