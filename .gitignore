@@ -2,6 +2,8 @@
 /TraversalSystem/Python39/
 /TraversalSystem/pyinstaller/
 /TraversalSystem/main.exe
+__pycache__/
+*.py[cod]
 
 # Visual Studio stuff
 /.vs

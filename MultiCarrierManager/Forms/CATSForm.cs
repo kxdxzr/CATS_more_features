@@ -13,9 +13,14 @@ namespace MultiCarrierManager
     {
         private CatSitter cats;
         private bool DisableSave = false;
+        private bool loadingSchedule;
+        private CheckBox scheduleEnabled;
+        private DateTimePicker scheduleDate, scheduleTime;
+        private Button scheduleNow, scheduleTenMinutes, scheduleHour;
         public CATSForm()
         {
             InitializeComponent();
+            InitializeScheduling();
             this.Shown += new System.EventHandler(this.CATSForm_Shown);
             this.Closed += new System.EventHandler(this.CATSForm_Closed);
         }
@@ -32,7 +37,7 @@ namespace MultiCarrierManager
 
         private void CATSForm_Closed(object sender, EventArgs e)
         {
-            cats.close();
+            if (cats != null) cats.close();
         }
 
         private void label6_Click(object sender, EventArgs e)
@@ -83,7 +88,6 @@ namespace MultiCarrierManager
             string slot = textBox3.Text;
             string route = textBox2.Text;
             int index = comboBox1.SelectedIndex;
-            
             if (index < 0) index = 0;
 
             string[] oldLines = File.ReadAllLines("CATS\\settings.txt");
@@ -110,27 +114,47 @@ namespace MultiCarrierManager
             File.WriteAllLines("CATS\\settings.txt", lines);
             File.WriteAllText("CATS\\route.txt", route);
             File.WriteAllText("CATS\\save.txt", Convert.ToString(index));
+            SaveSchedule();
 
             populateComboBox(sender, e);
         }
 
         private void runButton_Click(object sender, EventArgs e)
         {
+            if (Program.settings.AutoPlot && !Program.settings.DisableRefuel)
+            {
+                int slot;
+                if (!int.TryParse(textBox3.Text, out slot) || slot < 0)
+                {
+                    MessageBox.Show("Enter a non-negative Tritium slot, or disable automatic refuelling in Options.", "CATS");
+                    return;
+                }
+            }
             updateSettings(sender, e);
+            if (comboBox1.Items.Count <= 1)
+            {
+                MessageBox.Show("Please load a non-empty route before starting.", "CATS");
+                return;
+            }
             if (!cats.isRunning)
             {
                 Program.logger.Log("TraversalRunning");
                 cats.finalSystem = (string)comboBox1.Items[comboBox1.Items.Count - 1];
                 Program.logger.Log("Destination:" + cats.finalSystem);
 
-                cats.isRunning = true;
                 stopButton.Enabled = true;
                 runButton.Enabled = false;
                 loadButton.Enabled = false;
                 importButton.Enabled = false;
                 button2.Enabled = false;
                 button3.Enabled = false;
-                cats.run_cmd();
+                SetRunSettingsEnabled(false);
+                try { cats.run_cmd(); }
+                catch (Exception error)
+                {
+                    TraversalFinished();
+                    MessageBox.Show("Cannot start traversal: " + error.Message, "CATS");
+                }
             }
         }
 
@@ -138,18 +162,34 @@ namespace MultiCarrierManager
         {
             if (cats.isRunning)
             {
-                Program.logger.Log("TraversalStopped");
-                cats.isRunning = false;
                 stopButton.Enabled = false;
-                runButton.Enabled = true;
-                loadButton.Enabled = true;
-                importButton.Enabled = true;
-                button2.Enabled = true;
-                button3.Enabled = true;
-                cats.close();
-
-                Text = "Carrier Administration and Traversal System (CATS)";
+                Program.logger.Log("TraversalStopRequested");
+                if (cats.close()) TraversalFinished();
+                else
+                {
+                    stopButton.Enabled = true;
+                    MessageBox.Show("Traversal has not stopped. Run remains disabled; try Stop again.", "CATS");
+                }
             }
+        }
+
+        public void TraversalFinished()
+        {
+            // Reload the backend's saved position before Run can write settings again.
+            populateComboBox(this, EventArgs.Empty);
+            stopButton.Enabled = false;
+            runButton.Enabled = loadButton.Enabled = importButton.Enabled = true;
+            button2.Enabled = button3.Enabled = true;
+            SetRunSettingsEnabled(true);
+            label1.Text = "Current jump: stopped";
+            Text = "Carrier Administration and Traversal System (CATS)";
+        }
+
+        private void SetRunSettingsEnabled(bool enabled)
+        {
+            OptionsButton.Enabled = textBox2.Enabled = textBox3.Enabled = textBox5.Enabled = comboBox1.Enabled = enabled;
+            scheduleEnabled.Enabled = scheduleNow.Enabled = scheduleTenMinutes.Enabled = scheduleHour.Enabled = enabled;
+            scheduleDate.Enabled = scheduleTime.Enabled = enabled && scheduleEnabled.Checked;
         }
 
         private void loadFromRouteFile()
@@ -173,6 +213,7 @@ namespace MultiCarrierManager
             string[] lines = File.ReadAllLines("CATS\\settings.txt");
             textBox3.Text = "";
             textBox5.Text = "";
+            LoadSchedule();
 
             foreach (string line in lines)
             {
@@ -274,6 +315,12 @@ namespace MultiCarrierManager
 
         private void CATSForm_FormClosing(object sender, FormClosingEventArgs e)
         {
+            if (cats != null && cats.isRunning && !cats.close())
+            {
+                e.Cancel = true;
+                MessageBox.Show("Could not stop traversal. Please try Stop again before closing.", "CATS");
+                return;
+            }
             if (e.CloseReason == CloseReason.UserClosing)
             {
                 Program.logger.Log("End");
@@ -322,6 +369,53 @@ namespace MultiCarrierManager
         private void textBox5_Leave(object sender, EventArgs e)
         {
             updateSettings(sender, e);
+        }
+
+        private void InitializeScheduling()
+        {
+            scheduleEnabled = new CheckBox { Name = "scheduleEnabled", Text = "Scheduled start", Location = new System.Drawing.Point(12, 478), Size = new System.Drawing.Size(110, 24) };
+            scheduleDate = new DateTimePicker { Name = "scheduleDate", Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd", Location = new System.Drawing.Point(125, 480), Size = new System.Drawing.Size(132, 20) };
+            scheduleTime = new DateTimePicker { Name = "scheduleTime", Format = DateTimePickerFormat.Custom, CustomFormat = "HH:mm:ss", ShowUpDown = true, Location = new System.Drawing.Point(265, 480), Size = new System.Drawing.Size(110, 20) };
+            scheduleNow = new Button { Name = "scheduleNow", Text = "Now", Location = new System.Drawing.Point(385, 477), Size = new System.Drawing.Size(80, 25) };
+            scheduleTenMinutes = new Button { Name = "scheduleTenMinutes", Text = "+10 min", Location = new System.Drawing.Point(475, 477), Size = new System.Drawing.Size(85, 25) };
+            scheduleHour = new Button { Name = "scheduleHour", Text = "+1 hour", Location = new System.Drawing.Point(570, 477), Size = new System.Drawing.Size(90, 25) };
+            Controls.AddRange(new Control[] { scheduleEnabled, scheduleDate, scheduleTime, scheduleNow, scheduleTenMinutes, scheduleHour });
+            scheduleEnabled.CheckedChanged += (s, e) => { scheduleDate.Enabled = scheduleTime.Enabled = scheduleEnabled.Checked; SaveSchedule(); };
+            scheduleDate.ValueChanged += (s, e) => SaveSchedule();
+            scheduleTime.ValueChanged += (s, e) => SaveSchedule();
+            scheduleNow.Click += (s, e) => SetSchedule(DateTime.Now);
+            scheduleTenMinutes.Click += (s, e) => SetSchedule(DateTime.Now.AddMinutes(10));
+            scheduleHour.Click += (s, e) => SetSchedule(DateTime.Now.AddHours(1));
+        }
+
+        private void SetSchedule(DateTime value)
+        {
+            loadingSchedule = true;
+            scheduleDate.Value = scheduleTime.Value = value;
+            scheduleEnabled.Checked = true;
+            loadingSchedule = false;
+            SaveSchedule();
+        }
+
+        private void LoadSchedule()
+        {
+            loadingSchedule = true;
+            DateTime value;
+            bool enabled = DateTime.TryParseExact(Program.settings.ScheduledStart,
+                new[] { "yyyy-MM-dd HH:mm", "yyyy-MM-dd HH:mm:ss" },
+                System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out value);
+            scheduleDate.Value = scheduleTime.Value = enabled ? value : DateTime.Now;
+            scheduleEnabled.Checked = enabled;
+            scheduleDate.Enabled = scheduleTime.Enabled = enabled;
+            loadingSchedule = false;
+        }
+
+        private void SaveSchedule()
+        {
+            if (loadingSchedule || Program.settings == null) return;
+            DateTime value = scheduleDate.Value.Date.Add(scheduleTime.Value.TimeOfDay);
+            Program.settings.SetScheduledStart(scheduleEnabled.Checked
+                ? value.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) : "");
         }
     }
 }

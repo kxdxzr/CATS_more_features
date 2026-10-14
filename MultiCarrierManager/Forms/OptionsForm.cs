@@ -32,6 +32,8 @@ namespace MultiCarrierManager
             
             Program.settings.SetRefuelMode(comboBox1.SelectedIndex);
 
+            Program.settings.SetCompletionAction(new[] { "keep-open", "close-apps", "shutdown" }[completionAction.SelectedIndex]);
+
             Close();
         }
 
@@ -45,6 +47,8 @@ namespace MultiCarrierManager
             checkBox1.Checked = Program.settings.PowerSaving;
             
             comboBox1.SelectedIndex = Program.settings.RefuelMode;
+
+            completionAction.SelectedIndex = Array.IndexOf(new[] { "keep-open", "close-apps", "shutdown" }, Program.settings.CompletionAction);
         }
     }
 }

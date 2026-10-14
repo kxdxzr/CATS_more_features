@@ -16,11 +16,16 @@ namespace MultiCarrierManager
         public bool PowerSaving { get; private set; }
         public int RefuelMode { get; private set; } // 0: Regular, 1: Bug fix for > 8 items, 2: Squadron
         public bool SingleDiscordMessage { get; private set; }
+        public string ScheduledStart { get; private set; }
+        public bool ShutdownOnComplete { get; private set; }
+        public string CompletionAction { get; private set; }
 
         public SettingsManager(string file)
         {
             FileName = file;
             IniFile = File.ReadAllLines(file);
+            ScheduledStart = "";
+            ShutdownOnComplete = false;
 
             foreach (string line in IniFile)
             {
@@ -44,7 +49,7 @@ namespace MultiCarrierManager
                 {
                     PowerSaving = Convert.ToBoolean(line.Split('=')[1]);
                 }
-                else if  (line.StartsWith("squadron-carrier"))
+                else if  (line.StartsWith("refuel-mode=") || line.StartsWith("squadron-carrier="))
                 {
                     RefuelMode = Convert.ToInt32(line.Split('=')[1]);
                 }
@@ -52,20 +57,44 @@ namespace MultiCarrierManager
                 {
                     SingleDiscordMessage = Convert.ToBoolean(line.Split('=')[1]);
                 }
+                else if (line.StartsWith("scheduled-start="))
+                {
+                    ScheduledStart = line.Split(new char[] { '=' }, 2)[1].Trim();
+                }
+                else if (line.StartsWith("shutdown-on-complete="))
+                {
+                    ShutdownOnComplete = Convert.ToBoolean(line.Split('=')[1]);
+                }
+                else if (line.StartsWith("completion-action="))
+                {
+                    CompletionAction = line.Split('=')[1].Trim();
+                }
             }
+            if (CompletionAction == null) CompletionAction = ShutdownOnComplete ? "shutdown" : "keep-open";
+            if (CompletionAction != "keep-open" && CompletionAction != "close-apps" && CompletionAction != "shutdown")
+                throw new FormatException("Invalid completion-action");
+            ShutdownOnComplete = CompletionAction == "shutdown";
         }
 
         private void ReplaceInArray(string setting, bool b)
         {
+            bool found = false;
             int i = 0;
             foreach (string line in (string[])IniFile.Clone())
             {
                 if (line.StartsWith(setting))
                 {
                     IniFile[i] = setting + "=" + b;
+                    found = true;
                 }
 
                 i++;
+            }
+
+            if (!found)
+            {
+                Array.Resize(ref IniFile, IniFile.Length + 1);
+                IniFile[IniFile.Length - 1] = setting + "=" + b;
             }
 
             File.WriteAllLines(FileName, IniFile);
@@ -73,15 +102,47 @@ namespace MultiCarrierManager
         
         private void ReplaceInArray(string setting, int i)
         {
+            bool found = false;
             int j = 0;
             foreach (string line in (string[])IniFile.Clone())
             {
                 if (line.StartsWith(setting))
                 {
                     IniFile[j] = setting + "=" + Convert.ToString(i);
+                    found = true;
                 }
 
                 j++;
+            }
+
+            if (!found)
+            {
+                Array.Resize(ref IniFile, IniFile.Length + 1);
+                IniFile[IniFile.Length - 1] = setting + "=" + Convert.ToString(i);
+            }
+
+            File.WriteAllLines(FileName, IniFile);
+        }
+
+        private void ReplaceInArray(string setting, string value)
+        {
+            bool found = false;
+            int i = 0;
+            foreach (string line in (string[])IniFile.Clone())
+            {
+                if (line.StartsWith(setting))
+                {
+                    IniFile[i] = setting + "=" + value;
+                    found = true;
+                }
+
+                i++;
+            }
+
+            if (!found)
+            {
+                Array.Resize(ref IniFile, IniFile.Length + 1);
+                IniFile[IniFile.Length - 1] = setting + "=" + value;
             }
 
             File.WriteAllLines(FileName, IniFile);
@@ -129,6 +190,27 @@ namespace MultiCarrierManager
         {
             SingleDiscordMessage = b;
             ReplaceInArray("single-discord-message", b);
+        }
+
+        public void SetScheduledStart(string s)
+        {
+            ScheduledStart = (s ?? "").Trim();
+            ReplaceInArray("scheduled-start", ScheduledStart);
+        }
+
+        public void SetShutdownOnComplete(bool b)
+        {
+            SetCompletionAction(b ? "shutdown" : "keep-open");
+        }
+
+        public void SetCompletionAction(string action)
+        {
+            if (action != "keep-open" && action != "close-apps" && action != "shutdown")
+                throw new ArgumentException("Invalid completion action");
+            CompletionAction = action;
+            ShutdownOnComplete = action == "shutdown";
+            ReplaceInArray("shutdown-on-complete", ShutdownOnComplete);
+            ReplaceInArray("completion-action", action);
         }
     }
 }

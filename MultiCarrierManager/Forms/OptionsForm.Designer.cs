@@ -40,6 +40,8 @@ namespace MultiCarrierManager
             this.checkBox1 = new System.Windows.Forms.CheckBox();
             this.comboBox1 = new System.Windows.Forms.ComboBox();
             this.label1 = new System.Windows.Forms.Label();
+            this.completionLabel = new System.Windows.Forms.Label();
+            this.completionAction = new System.Windows.Forms.ComboBox();
             this.SuspendLayout();
             // 
             // checkBox2
@@ -72,7 +74,7 @@ namespace MultiCarrierManager
             // button1
             // 
             this.button1.Anchor = System.Windows.Forms.AnchorStyles.Bottom;
-            this.button1.Location = new System.Drawing.Point(12, 243);
+            this.button1.Location = new System.Drawing.Point(12, 273);
             this.button1.Name = "button1";
             this.button1.Size = new System.Drawing.Size(344, 45);
             this.button1.TabIndex = 4;
@@ -116,13 +118,27 @@ namespace MultiCarrierManager
             this.label1.TabIndex = 8;
             this.label1.Text = "Refuelling mode";
             // 
+            // Route completion action
+            //
+            this.completionLabel.Location = new System.Drawing.Point(12, 215);
+            this.completionLabel.Size = new System.Drawing.Size(333, 20);
+            this.completionLabel.Text = "When route completes";
+            this.completionAction.Location = new System.Drawing.Point(12, 237);
+            this.completionAction.Name = "completionAction";
+            this.completionAction.Size = new System.Drawing.Size(333, 21);
+            this.completionAction.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.completionAction.Items.AddRange(new object[] { "Keep game and CATS open", "Close game and CATS", "Shut down computer (30 second countdown)" });
+            this.completionAction.TabIndex = 9;
+            //
             // OptionsForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(368, 300);
+            this.ClientSize = new System.Drawing.Size(368, 330);
             this.Controls.Add(this.label1);
             this.Controls.Add(this.comboBox1);
+            this.Controls.Add(this.completionLabel);
+            this.Controls.Add(this.completionAction);
             this.Controls.Add(this.checkBox1);
             this.Controls.Add(this.checkBox5);
             this.Controls.Add(this.button1);
@@ -137,6 +153,9 @@ namespace MultiCarrierManager
         }
 
         private System.Windows.Forms.Label label1;
+
+        private System.Windows.Forms.Label completionLabel;
+        private System.Windows.Forms.ComboBox completionAction;
 
         private System.Windows.Forms.ComboBox comboBox1;
 

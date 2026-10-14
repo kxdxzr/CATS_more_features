@@ -23,6 +23,7 @@ namespace MultiCarrierManager
         [STAThread]
         static void Main()
         {
+            Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
             AppDomain.CurrentDomain.UnhandledException += new UnhandledExceptionEventHandler(ErrorPopupHandler);
             Application.ThreadException += new System.Threading.ThreadExceptionEventHandler(ErrorPopupHandler);
             settings = new SettingsManager("settings/settings.ini");

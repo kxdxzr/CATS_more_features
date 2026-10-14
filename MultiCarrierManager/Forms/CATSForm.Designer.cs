@@ -53,6 +53,7 @@ namespace MultiCarrierManager
             this.OptionsButton = new System.Windows.Forms.Button();
             this.button4 = new System.Windows.Forms.Button();
             this.button5 = new System.Windows.Forms.Button();
+            this.label9 = new System.Windows.Forms.Label();
             this.SuspendLayout();
             // 
             // label2
@@ -79,7 +80,7 @@ namespace MultiCarrierManager
             this.textBox2.Multiline = true;
             this.textBox2.Name = "textBox2";
             this.textBox2.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.textBox2.Size = new System.Drawing.Size(651, 404);
+            this.textBox2.Size = new System.Drawing.Size(651, 350);
             this.textBox2.TabIndex = 7;
             // 
             // runButton
@@ -264,6 +265,15 @@ namespace MultiCarrierManager
             this.button5.UseVisualStyleBackColor = true;
             this.button5.Click += new System.EventHandler(this.button5_Click);
             // 
+            // label9
+            //
+            this.label9.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.label9.Location = new System.Drawing.Point(12, 503);
+            this.label9.Name = "label9";
+            this.label9.Size = new System.Drawing.Size(651, 23);
+            this.label9.TabIndex = 29;
+            this.label9.Text = "Local time. Uncheck Scheduled start to run immediately. Carrier cooldown is checked before navigation.";
+            //
             // CATSForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -291,6 +301,7 @@ namespace MultiCarrierManager
             this.Controls.Add(this.textBox2);
             this.Controls.Add(this.label5);
             this.Controls.Add(this.label2);
+            this.Controls.Add(this.label9);
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Name = "CATSForm";
             this.Text = "Carrier Administration and Traversal System (CATS)";
@@ -336,6 +347,8 @@ namespace MultiCarrierManager
 
         private System.Windows.Forms.Label label2;
         private System.Windows.Forms.Label label5;
+
+        private System.Windows.Forms.Label label9;
 
         #endregion
     }

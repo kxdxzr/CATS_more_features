@@ -1,125 +1,169 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace MultiCarrierManager.CATS
 {
     public class CatSitter
     {
-        // Why rewrite my shit python script when I can just call it from c#? I'm sure this will cause no issues at all in the future!
-        // also fuck your naming schemes I think the class name is cute
-
-        private TextBox output;
-        private CATSForm form;
+        private readonly TextBox output;
+        private readonly CATSForm form;
+        private readonly Label countdownLabel, etaLabel;
         private Process process;
-        private Label countdownLabel;
-        private Label etaLabel;
+        private ProcessJob job;
+        private bool stopping, closeOnSuccess;
         public bool isRunning { get; set; }
+        public string finalSystem { get; set; }
+        private string nextSystem;
 
         public CatSitter(TextBox output, CATSForm form, Label countdownLabel, Label etaLabel)
         {
             this.output = output;
-            this.countdownLabel = countdownLabel;
             this.form = form;
+            this.countdownLabel = countdownLabel;
             this.etaLabel = etaLabel;
         }
 
-        public string finalSystem { get; set; }
-        private string nextSystem;
-
+        private void OnUi(Action action)
+        {
+            if (form.IsDisposed || !form.IsHandleCreated) return;
+            try { form.BeginInvoke(action); }
+            catch (InvalidOperationException) { }
+        }
 
         public void run_cmd()
         {
-            output.Text = "";
-            process = new Process();
-            process.StartInfo.FileName = "CATS\\pyinstaller\\TraversalSystem\\TraversalSystem.exe";
-            process.StartInfo.WorkingDirectory = "CATS";
-            // The old way of executing the Python script, using a Python installation to execute instead of compiling
-            // process.StartInfo.FileName = "CATS\\Python39\\python.exe";
-            // process.StartInfo.WorkingDirectory = "CATS";
-            // process.StartInfo.Arguments = "-u main.py";
-            process.StartInfo.UseShellExecute = false;
-            process.StartInfo.RedirectStandardOutput = true;
-            // Monitor the process for exit
-            process.EnableRaisingEvents = true;
-            process.Exited += new EventHandler((s, e) =>
+            if (process != null) throw new InvalidOperationException("Previous traversal has not stopped.");
+            output.Clear();
+            stopping = closeOnSuccess = false;
+            var running = new Process();
+            var runJob = new ProcessJob();
+            process = running;
+            job = runJob;
+            running.StartInfo = new ProcessStartInfo
             {
-                form.stopButton_Click(s, e);
-                Program.logger.Log("TraversalExitCode=" + process.ExitCode);
-            });
-            process.OutputDataReceived += new DataReceivedEventHandler((s2, e2) =>
+                FileName = Path.GetFullPath("CATS\\pyinstaller\\TraversalSystem\\TraversalSystem-new.exe"),
+                WorkingDirectory = Path.GetFullPath("CATS"),
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+                StandardErrorEncoding = System.Text.Encoding.UTF8
+            };
+            running.StartInfo.EnvironmentVariables["CATS_CONTROL_STDIN"] = "1";
+            DataReceivedEventHandler received = (sender, e) =>
             {
-                // First check if the output is a number, in which case pass it to the countdown clock instead of the console
-                try
+                if (e.Data == null) return;
+                OnUi(() =>
                 {
-                    int remaining = Convert.ToInt32(e2.Data);
-
-                    countdownLabel.Text = "Current jump: " + TimeSpan.FromSeconds(remaining).ToString(@"hh\:mm\:ss");
-                }
-                catch (FormatException)
-                {
-                    try
-                    {
-                        string line = e2.Data;
-                        output.AppendText(line + Environment.NewLine);
-                        if (!line.StartsWith("journal_directory=")) Program.logger.LogCats(line);
-
-                        switch (line)
-                        {
-                            case "Beginning in 5...":
-                                form.Text = $"CATS | En route to {finalSystem} | Next stop: {nextSystem} | Starting up...";
-                                break;
-                            case string s when s.StartsWith("Next stop"):
-                                nextSystem = line.Split(':')[1].Remove(0, 1);
-                                form.Text = $"CATS | En route to {finalSystem} | Next stop: {nextSystem} | Navigating menus...";
-                                break;
-                            case string s when s.StartsWith("Navigation complete"):
-                                form.Text = $"CATS | En route to {finalSystem} | Next stop: {nextSystem} | Counting down...";
-                                break;
-                            case "Jumping!":
-                                form.Text = $"CATS | En route to {finalSystem} | Next stop: {nextSystem} | In hyperspace...";
-                                break;
-                            case "Jump complete!":
-                                form.Text = $"CATS | En route to {finalSystem} | Next stop: {nextSystem} | Cooling down...";
-                                break;
-                            case "Restocking tritium...":
-                                form.Text = $"CATS | En route to {finalSystem} | Next stop: {nextSystem} | Restocking tritium...";
-                                break;
-                            case "Tritium successfully refuelled":
-                                form.Text = $"CATS | En route to {finalSystem} | Next stop: {nextSystem} | Cooling down...";
-                                break;
-                            case "Route complete!":
-                                form.Text = "Carrier Administration and Traversal System (CATS)";
-                                break;
-                            case string s when s.StartsWith("ETA:"):
-                                etaLabel.Text = line;
-                                break;
-                            case string s when s.StartsWith("alert:"):
-                                string alert = line.Split(':')[1];
-                                MessageBox.Show(alert, "Alert", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
-                                break;
-                        }
-                    }
-                    catch (Exception)
-                    {
-                        Program.logger.LogOutput("Exception while writing to console, possible force CATS process kill");
-                    }
-                }
-            });
-            process.Start();
-            process.BeginOutputReadLine();
-            Program.logger.LogOutput("Traversal System script started");
-        }
-
-        public void close()
-        {
+                    if (process != running || stopping) return;
+                    HandleOutput(e.Data);
+                });
+            };
+            running.OutputDataReceived += received;
+            running.ErrorDataReceived += received;
             try
             {
-                process.Kill();
-                process.Close();
+                running.Start();
+                runJob.Add(running);
+                running.BeginOutputReadLine();
+                running.BeginErrorReadLine();
+                isRunning = true;
+                Program.logger.Log("TraversalPID=" + running.Id);
+                Task.Run(() =>
+                {
+                    // WaitForExit also drains redirected output before posting completion.
+                    running.WaitForExit();
+                    int code = running.ExitCode;
+                    OnUi(() =>
+                    {
+                        if (process != running) { running.Dispose(); runJob.Dispose(); return; }
+                        bool exitApplication = !stopping && code == 0 && closeOnSuccess;
+                        Program.logger.Log("TraversalExitCode=" + code);
+                        if (!runJob.Stop()) { Program.logger.LogError("Traversal descendants have not exited"); return; }
+                        runJob.Dispose();
+                        running.Dispose();
+                        process = null;
+                        job = null;
+                        isRunning = false;
+                        form.TraversalFinished();
+                        if (exitApplication) Application.Exit();
+                    });
+                });
             }
-            catch (Exception) { }
+            catch
+            {
+                runJob.Dispose();
+                try { if (!running.HasExited) running.Kill(); } catch (InvalidOperationException) { }
+                running.Dispose();
+                process = null;
+                job = null;
+                isRunning = false;
+                throw;
+            }
+        }
+
+        private void HandleOutput(string line)
+        {
+            int remaining;
+            if (int.TryParse(line, out remaining))
+            {
+                countdownLabel.Text = "Current jump: " + TimeSpan.FromSeconds(remaining).ToString(@"hh\:mm\:ss");
+                return;
+            }
+            output.AppendText(line + Environment.NewLine);
+            if (!line.StartsWith("journal_directory=")) Program.logger.LogCats(line);
+            if (line == "CATS_COMPLETION_CLOSE") closeOnSuccess = true;
+            if (line.StartsWith("Next stop: ")) nextSystem = line.Substring(11);
+            if (line.StartsWith("ETA:")) etaLabel.Text = line;
+            if (line.StartsWith("Waiting for carrier")) countdownLabel.Text = line;
+            if (line.StartsWith("alert:")) { MessageBox.Show(line.Substring(6), "Alert"); return; }
+            string stage = null;
+            if (line == "Beginning in 5...") stage = "Starting up...";
+            if (line == "Beginning navigation.") stage = "Navigating menus...";
+            if (line.StartsWith("Navigation complete")) stage = "Counting down...";
+            if (line == "Jumping!") stage = "In hyperspace...";
+            if (line == "Jump complete!" || line == "Refuel process completed.") stage = "Cooling down...";
+            if (line == "Restocking tritium...") stage = "Restocking tritium...";
+            if (stage != null) form.Text = $"CATS | En route to {finalSystem} | Next stop: {nextSystem} | {stage}";
+        }
+
+        public bool close()
+        {
+            var running = process;
+            if (running == null) return true;
+            stopping = true;
+            closeOnSuccess = false;
+            try
+            {
+                if (!running.HasExited)
+                {
+                    try { running.StandardInput.WriteLine("stop"); running.StandardInput.Flush(); }
+                    catch (IOException) { }
+                    if (!running.WaitForExit(1500))
+                    {
+                        Program.logger.Log("TraversalStop: terminating process job");
+                        if (!job.Stop()) return false;
+                    }
+                    if (!running.WaitForExit(5000)) return false;
+                }
+                if (!job.Stop()) return false;
+                job.Dispose();
+                Program.logger.Log("TraversalStoppedConfirmed PID=" + running.Id + " ExitCode=" + running.ExitCode);
+                process = null; // queued callbacks from this run are now obsolete
+                job = null;
+                isRunning = false;
+                return true;
+            }
+            catch (Exception e)
+            {
+                Program.logger.LogError("TraversalStop failed: " + e.Message);
+                return false;
+            }
         }
     }
 }

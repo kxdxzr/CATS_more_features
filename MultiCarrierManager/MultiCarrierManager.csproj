@@ -33,7 +33,6 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
     <!-- PostBuildEvent explanation:
     1. Copies TraversalSystem directory from solution's pyinstaller folder to target's CATS\pyinstaller folder
@@ -129,8 +128,12 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="ApiTools\CAPI.cs" />
-    <Compile Include="ApiTools\OAuth2.cs" />
+    <Compile Include="ApiTools\OAuth2.cs" Condition="Exists('ApiTools\OAuth2.cs')" />
+    <Compile Include="ApiTools\OAuth2.cs.template" Condition="!Exists('ApiTools\OAuth2.cs')">
+      <Link>ApiTools\OAuth2.cs</Link>
+    </Compile>
     <Compile Include="CATS\CatSitter.cs" />
+    <Compile Include="CATS\ProcessJob.cs" />
     <Compile Include="Forms\AboutForm.cs">
       <SubType>Form</SubType>
     </Compile>
