@@ -55,6 +55,9 @@ Do not commit private OAuth source files, tokens, webhook URLs or local account 
 
 ## 3. Deploy the test build
 
+Prebuilt portable beta ZIPs are available on this fork's GitHub Releases page. Extract all files and follow
+`START_HERE.txt`, or use the manual deployment instructions below when building from source.
+
 Use a separate test installation, or back up the executables in an existing installation before replacing them.
 Copy the new GUI, its `.config` and dependency DLLs from the Release output, and the new backend from `../build`.
 The runtime directory must have this layout:
@@ -107,6 +110,19 @@ or shut down the computer. Completion actions and game-process handling are mock
 
 These checks do **not** establish reliable behaviour across every game state. Full routes, refuelling modes,
 power saving, live cooldown transitions and real completion actions still need further in-game testing.
+
+## Package a beta
+
+After committing the source, building both executables and running the checks:
+
+```powershell
+.\venv\Scripts\python.exe tools\package_beta.py --version v3.2.2-beta.1
+```
+
+The script creates a portable Windows ZIP and an external checksum file under `../build/releases/`.
+It copies only build outputs, repository defaults, runtime assets and documentation, not a live installation's
+accounts, tokens, logs or routes. The archive includes an empty route, first-run instructions, source commit information
+and per-file checksums. It refuses to overwrite existing release assets.
 
 ## Runtime details
 

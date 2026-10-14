@@ -1,10 +1,6 @@
 # CATS More Features — Experimental Fork
 
 > [!WARNING]
-> **目前仍在测试阶段，可能存在较多 bug，尚不适合视为稳定版本。**
-> 定时启动已有实际游戏测试；Stop、冷却恢复、加油及完成后关闭游戏/关机等功能仍需持续验证。
-> 自动化测试通过并不代表所有游戏场景都可靠，请先在能观察和及时中断的情况下测试。
->
 > **This fork is under active testing and may contain many bugs. It is not a stable release.**
 > Scheduled start has been tested in game, but stopping, cooldown recovery, refuelling and completion actions
 > still need broader real-game testing. Passing automated tests does not guarantee reliable unattended operation.
@@ -13,39 +9,46 @@ This is [kxdxzr's experimental fork](https://github.com/kxdxzr/CATS_more_feature
 [mck-9061/CATS](https://github.com/mck-9061/CATS). The original CATS project and its authors deserve credit
 for the carrier administration and traversal functionality.
 
-## 本 fork 的新增功能 / What's new
+## What's new in this fork
 
-- **定时启动**：使用日期选择器和时、分、秒调节框，支持 `Now`、`+10 min`、`+1 hour` 快捷按钮。
-  取消勾选 `Scheduled start` 即立即启动，时间使用电脑本地时间。
-- **完成后操作**：在 Options → `When route completes` 中选择保持打开、关闭游戏和 CATS，或关闭电脑。
-- **Stop 修复**：先发送取消信号、释放自动化按住的键并保存进度，必要时结束整棵后端进程树；
-  确认退出后才允许再次 Run，旧任务的输出和退出回调不会干扰新任务。
-- **启动冷却恢复**：从最近的 journal 恢复跳跃状态，等待已有跳跃及冷却后再导航；定时启动也会检查。
-- **续跑与 journal 处理**：保存位置同步回界面，区分历史事件与新请求，处理 journal 分卷和未写完的记录。
-- **普通航母加油导航调整**：移除货物转移序列中多余的四次 `e`；Squadron 序列未修改。
-- **配置与构建改进**：自动加油关闭时氚货位允许为空；无需 Frontier client ID 即可构建并使用遍历功能。
+- **Scheduled start:** choose a date and adjust hours, minutes and seconds, with `Now`, `+10 min` and `+1 hour`
+  shortcuts. Uncheck `Scheduled start` to start immediately. All scheduled times use your computer's local time.
+- **Completion actions:** keep everything open, close the game and CATS, or shut down the computer through
+  Options → `When route completes`.
+- **Stop fixes:** request cancellation, release held automation keys and save progress, with a process-tree
+  termination fallback. Run is enabled only after exit is confirmed; old output and exit callbacks cannot stop a new run.
+- **Startup cooldown recovery:** recover carrier state from recent journals and wait for an existing jump and
+  cooldown before navigating, including when a scheduled start is reached.
+- **Resume and journal handling:** synchronize saved progress with the GUI, distinguish historical events from
+  new requests, and handle journal rotation and partially written records.
+- **Personal carrier refuelling adjustment:** remove four redundant `e` presses from the cargo-transfer sequence.
+  Squadron sequences have not been changed.
+- **Configuration and build improvements:** allow an empty tritium slot when automatic refuelling is disabled,
+  and build/use journal-based traversal without a Frontier client ID.
 
-## 新功能使用方法 / Using this fork
+## Using this fork
 
-1. 按 [building.md](building.md) 构建 GUI 和后端，并按文档布置运行目录。
-2. 启动 **`CATS-new.exe`**。旧版 `CATS.exe` 或上游发布包不会自动获得这些功能。
-3. 配好路线和 Journal Dir；启用自动加油时填写有效的 Tritium slot。
-4. 需要定时时，勾选 `Scheduled start` 并选择日期和时间，再点 Run。
-   到点后还会进行原有准备倒计时及冷却检查，不保证到点瞬间就发送导航按键。
-5. 在 Options → `When route completes` 选择完成后行为：
+1. Download the Windows beta ZIP from [Releases](https://github.com/kxdxzr/CATS_more_features/releases),
+   extract the entire archive to a writable folder, and read `START_HERE.txt`. Alternatively, build both
+   executables and arrange the runtime directory as described in [building.md](building.md).
+2. Start **`CATS-new.exe`**. The old `CATS.exe` and upstream releases do not include this fork's features.
+3. Configure your route and Journal Dir. Set a valid Tritium slot if automatic refuelling is enabled.
+4. For a delayed start, check `Scheduled start`, choose the date/time, then click Run. The usual startup
+   countdown and carrier cooldown checks still apply; navigation input may begin later than the selected time.
+5. Select an action in Options → `When route completes`:
 
-| 选项 | 行为 |
+| Option | Behaviour |
 | --- | --- |
-| `Keep game and CATS open` | 路线结束后保留游戏和 GUI。 |
-| `Close game and CATS` | 确认路线完成后请求游戏正常退出；15 秒未退出则结束游戏进程，确认退出后关闭当前 CATS 应用。关闭失败会报错并保留 GUI。 |
-| `Shut down computer (30 second countdown)` | 完成后调用 Windows 30 秒关机倒计时，可用 `shutdown /a` 取消。 |
+| `Keep game and CATS open` | Leave the game and GUI open after the route finishes. |
+| `Close game and CATS` | After confirmed route completion, request normal game exit. Terminate the game if it is still running after 15 seconds, then close the current CATS application once exit is confirmed. Failure keeps the GUI open to report the error. |
+| `Shut down computer (30 second countdown)` | Schedule a Windows shutdown after route completion. Use `shutdown /a` to cancel the countdown. |
 
-**Stop 只停止 CATS 自动操作，不会取消已在游戏中提交的舰队航母跳跃。**
-手动停止或运行出错不会按成功完成路线来触发完成后操作。
+**Stop stops CATS automation; it does not cancel a carrier jump already submitted in the game.**
+Stopping manually or encountering an error does not count as successful route completion and does not trigger a completion action.
 
-### 配置兼容与测试范围
+### Configuration compatibility and testing status
 
-安装目录的 `settings/settings.ini` 支持：
+The installation's `settings/settings.ini` supports:
 
 ```ini
 scheduled-start=
@@ -53,16 +56,20 @@ completion-action=keep-open
 shutdown-on-complete=False
 ```
 
-- `scheduled-start` 为空或过去时间时立即启动；文本配置兼容 `YYYY-MM-DD HH:MM[:SS]`。
-- `completion-action` 可选 `keep-open`、`close-apps`、`shutdown`。
-  新键存在时以新键为准；没有新键的旧配置会读取 `shutdown-on-complete`。
-- 冷却保守按 journal 到达事件后的 **300 秒**计算。缺少到达记录且无已知待执行跳跃时，先等待 300 秒。
-- 单元测试覆盖 journal 状态恢复、事件匹配、取消、按键释放和完成操作；Windows 集成测试使用模拟父子进程
-  检查 Stop/立即重启，并在真 onefile exe 的定时与冷却等待阶段验证取消。
-- **完整路线、不同游戏菜单/加油模式及真实完成后退出/关机仍需进一步实测，bug 修复也可能带来回归。**
+- An empty or past `scheduled-start` starts immediately. Text configuration accepts `YYYY-MM-DD HH:MM[:SS]`.
+- `completion-action` accepts `keep-open`, `close-apps` or `shutdown`. It takes precedence when present;
+  older configurations without it fall back to `shutdown-on-complete`.
+- Cooldown is conservatively calculated as **300 seconds** after a journal arrival event. If no arrival record
+  or known pending jump can be recovered, startup waits 300 seconds first.
+- Unit tests cover journal state recovery, event matching, cancellation, key release and completion actions.
+  Windows integration tests use synthetic parent/child processes to check Stop and immediate restart, and
+  verify cancellation of the real onefile backend during scheduled-start and cooldown waits.
+- **Full routes, different game menus/refuelling modes, and real game-exit/shutdown actions still require
+  further in-game testing. Fixes may introduce regressions.**
 
-请在本 fork 的 [Issues](https://github.com/kxdxzr/CATS_more_features/issues) 中提供复现步骤、相关设置和日志片段。
-测试命令、构建要求及目录布局见 [building.md](building.md)。
+Please report bugs in this fork's [Issues](https://github.com/kxdxzr/CATS_more_features/issues), including
+reproduction steps, relevant settings and log excerpts. See [building.md](building.md) for test commands,
+build requirements and deployment layout.
 
 ---
 
@@ -98,9 +105,11 @@ This app also allows you to view stats about carriers across multiple accounts.
 * Elite needs to be using the default keybinds - if you've got custom keybinds, or are using a controller or HOTAS, you should back up your binds then reset to default keyboard+mouse.
 
 ## Installation
-For this experimental fork, follow [building.md](building.md) to build and deploy both executables.
-Do not assume an upstream installer contains this fork's changes. The original upstream release bundles
-the admin panel and traversal system, but its binaries are separate from the features described above.
+Download the Windows beta ZIP from this fork's [Releases](https://github.com/kxdxzr/CATS_more_features/releases),
+extract all files, and launch `CATS-new.exe`. The portable beta requires 64-bit Windows and .NET Framework 4.7.2
+or newer; a separate Python installation is not required. Read the testing warning and `START_HERE.txt` before running.
+
+To build from source, follow [building.md](building.md). Do not assume an upstream installer contains this fork's changes.
 
 ## Traversal system usage
 ### Refuelling setup
