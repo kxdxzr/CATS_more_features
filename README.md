@@ -1,7 +1,7 @@
 # CATS More Features — Experimental Fork
 
 > [!WARNING]
-> **This fork is under active testing and may contain many bugs. It is not a stable release.**
+> **This fork is under active testing and may contain many bugs.**
 > Scheduled start has been tested in game, but stopping, cooldown recovery, refuelling and completion actions
 > still need broader real-game testing. Passing automated tests does not guarantee reliable unattended operation.
 
@@ -28,7 +28,7 @@ for the carrier administration and traversal functionality.
 
 ## Using this fork
 
-1. Download the Windows beta ZIP from [Releases](https://github.com/kxdxzr/CATS_more_features/releases),
+1. Download the Windows ZIP from [Releases](https://github.com/kxdxzr/CATS_more_features/releases),
    extract the entire archive to a writable folder, and read `START_HERE.txt`. Alternatively, build both
    executables and arrange the runtime directory as described in [building.md](building.md).
 2. Start **`CATS-new.exe`**. The old `CATS.exe` and upstream releases do not include this fork's features.
@@ -47,7 +47,7 @@ for the carrier administration and traversal functionality.
 Stopping manually or encountering an error does not count as successful route completion and does not trigger a completion action.
 
 Changing this fork's backend to a onefile executable introduced a Stop regression: the Python child process
-could survive after the launcher was stopped. This beta includes a fix for that regression, which still needs
+could survive after the launcher was stopped. This release includes a fix for that regression, which still needs
 broader in-game testing; it is not presented as an upstream CATS defect or a new feature.
 
 ### Configuration compatibility and testing status
@@ -77,11 +77,11 @@ build requirements and deployment layout.
 
 ### Testing refuelling
 
-In the latest source build, set the refuelling mode in Options and enter the appropriate Tritium Slot, then click
+In v3.2.2 or later, set the refuelling mode in Options and enter the appropriate Tritium Slot, then click
 **Test refuel...**. After confirming, switch to the prepared game interface within 10 seconds. The test runs once
 even if automatic refuelling is disabled, and does not start a route, shut down the computer or close the game.
 Use **Stop CATS** to cancel. A completed input sequence does not prove fuel was transferred: check the game and
-fuel level manually. This button is not included in the existing `v3.2.2-beta.1` release; build the latest source.
+fuel level manually. This button is not included in the older `v3.2.2-beta.1` release.
 
 ---
 
@@ -117,8 +117,8 @@ This app also allows you to view stats about carriers across multiple accounts.
 * Elite needs to be using the default keybinds - if you've got custom keybinds, or are using a controller or HOTAS, you should back up your binds then reset to default keyboard+mouse.
 
 ## Installation
-Download the Windows beta ZIP from this fork's [Releases](https://github.com/kxdxzr/CATS_more_features/releases),
-extract all files, and launch `CATS-new.exe`. The portable beta requires 64-bit Windows and .NET Framework 4.7.2
+Download the Windows ZIP from this fork's [Releases](https://github.com/kxdxzr/CATS_more_features/releases),
+extract all files, and launch `CATS-new.exe`. The portable build requires 64-bit Windows and .NET Framework 4.7.2
 or newer; a separate Python installation is not required. Read the testing warning and `START_HERE.txt` before running.
 
 To build from source, follow [building.md](building.md). Do not assume an upstream installer contains this fork's changes.

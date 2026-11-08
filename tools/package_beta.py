@@ -7,9 +7,9 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
-START_HERE = """CATS More Features {version} - Windows beta
+START_HERE = """CATS More Features {version} - Windows
 
-THIS IS AN EXPERIMENTAL TEST BUILD AND MAY CONTAIN MANY BUGS.
+THIS SOFTWARE IS UNDER ACTIVE TESTING AND MAY CONTAIN MANY BUGS.
 Scheduled start has been tested in game. Full routes, refuelling, power saving,
 cooldown recovery and real completion actions still need broader in-game testing.
 
@@ -24,6 +24,8 @@ Python does not need to be installed separately.
 6. Choose Options > When route completes. The default keeps the game and CATS open.
 7. Start with a supervised test. Stop halts CATS automation, not a jump already
    submitted in the game. Save your existing settings before updating installations.
+8. Test refuel... sends real input and may move cargo, even when automatic
+   refuelling is disabled. Check the fuel and cargo in the game afterwards.
 
 Completion options: keep open, close game and CATS, or shut down the computer.
 Game closure requests a normal exit, then terminates the game if necessary after
