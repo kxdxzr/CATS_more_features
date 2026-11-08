@@ -17,10 +17,12 @@ namespace MultiCarrierManager
         private CheckBox scheduleEnabled;
         private DateTimePicker scheduleDate, scheduleTime;
         private Button scheduleNow, scheduleTenMinutes, scheduleHour;
+        private Button refuelTestButton;
         public CATSForm()
         {
             InitializeComponent();
-            InitializeScheduling();
+            // Keep enough space for the fixed-height scheduling controls at any window size.
+            this.MinimumSize = this.Size;
             this.Shown += new System.EventHandler(this.CATSForm_Shown);
             this.Closed += new System.EventHandler(this.CATSForm_Closed);
         }
@@ -179,6 +181,7 @@ namespace MultiCarrierManager
             populateComboBox(this, EventArgs.Empty);
             stopButton.Enabled = false;
             runButton.Enabled = loadButton.Enabled = importButton.Enabled = true;
+            refuelTestButton.Enabled = true;
             button2.Enabled = button3.Enabled = true;
             SetRunSettingsEnabled(true);
             label1.Text = "Current jump: stopped";
@@ -188,6 +191,7 @@ namespace MultiCarrierManager
         private void SetRunSettingsEnabled(bool enabled)
         {
             OptionsButton.Enabled = textBox2.Enabled = textBox3.Enabled = textBox5.Enabled = comboBox1.Enabled = enabled;
+            refuelTestButton.Enabled = enabled;
             scheduleEnabled.Enabled = scheduleNow.Enabled = scheduleTenMinutes.Enabled = scheduleHour.Enabled = enabled;
             scheduleDate.Enabled = scheduleTime.Enabled = enabled && scheduleEnabled.Checked;
         }
@@ -373,12 +377,17 @@ namespace MultiCarrierManager
 
         private void InitializeScheduling()
         {
+            refuelTestButton = new Button { Name = "refuelTestButton", Text = "Test refuel...", Location = new System.Drawing.Point(542, 87), Size = new System.Drawing.Size(121, 23) };
+            refuelTestButton.Click += RefuelTest_Click;
+            Controls.Add(refuelTestButton);
             scheduleEnabled = new CheckBox { Name = "scheduleEnabled", Text = "Scheduled start", Location = new System.Drawing.Point(12, 478), Size = new System.Drawing.Size(110, 24) };
             scheduleDate = new DateTimePicker { Name = "scheduleDate", Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd", Location = new System.Drawing.Point(125, 480), Size = new System.Drawing.Size(132, 20) };
             scheduleTime = new DateTimePicker { Name = "scheduleTime", Format = DateTimePickerFormat.Custom, CustomFormat = "HH:mm:ss", ShowUpDown = true, Location = new System.Drawing.Point(265, 480), Size = new System.Drawing.Size(110, 20) };
             scheduleNow = new Button { Name = "scheduleNow", Text = "Now", Location = new System.Drawing.Point(385, 477), Size = new System.Drawing.Size(80, 25) };
             scheduleTenMinutes = new Button { Name = "scheduleTenMinutes", Text = "+10 min", Location = new System.Drawing.Point(475, 477), Size = new System.Drawing.Size(85, 25) };
             scheduleHour = new Button { Name = "scheduleHour", Text = "+1 hour", Location = new System.Drawing.Point(570, 477), Size = new System.Drawing.Size(90, 25) };
+            foreach (Control control in new Control[] { scheduleEnabled, scheduleDate, scheduleTime, scheduleNow, scheduleTenMinutes, scheduleHour })
+                control.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
             Controls.AddRange(new Control[] { scheduleEnabled, scheduleDate, scheduleTime, scheduleNow, scheduleTenMinutes, scheduleHour });
             scheduleEnabled.CheckedChanged += (s, e) => { scheduleDate.Enabled = scheduleTime.Enabled = scheduleEnabled.Checked; SaveSchedule(); };
             scheduleDate.ValueChanged += (s, e) => SaveSchedule();
@@ -386,6 +395,38 @@ namespace MultiCarrierManager
             scheduleNow.Click += (s, e) => SetSchedule(DateTime.Now);
             scheduleTenMinutes.Click += (s, e) => SetSchedule(DateTime.Now.AddMinutes(10));
             scheduleHour.Click += (s, e) => SetSchedule(DateTime.Now.AddHours(1));
+        }
+
+        private void RefuelTest_Click(object sender, EventArgs e)
+        {
+            if (cats == null || cats.isRunning) return;
+            int slot;
+            if (!int.TryParse(textBox3.Text, out slot) || slot < 0)
+            {
+                MessageBox.Show("Enter a non-negative Tritium slot before testing.", "CATS");
+                return;
+            }
+            string mode = new[] { "Personal (first 8 items)", "Personal (after 8 items)", "Squadron" }[Program.settings.RefuelMode];
+            string warning = "This will send real game inputs and move cargo, even if automatic refuelling is disabled.\n\n" +
+                "Mode: " + mode + "\nTritium slot: " + slot + "\n\n" +
+                "Prepare the carrier interface as for normal refuelling. After confirming, switch to the game within 10 seconds. " +
+                "Stop CATS cancels the test. No route or shutdown action will run.\n\nContinue?";
+            if (MessageBox.Show(warning, "Test refuelling", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            // Save only the slot: a test must not overwrite the route or saved progress.
+            string[] lines = File.ReadAllLines("CATS\\settings.txt");
+            for (int i = 0; i < lines.Length; i++)
+                if (lines[i].StartsWith("tritium_slot=")) lines[i] = "tritium_slot=" + slot;
+            File.WriteAllLines("CATS\\settings.txt", lines);
+            Program.logger.Log("RefuelTestStarted mode=" + mode + " slot=" + slot);
+            stopButton.Enabled = true;
+            runButton.Enabled = loadButton.Enabled = importButton.Enabled = button2.Enabled = button3.Enabled = false;
+            SetRunSettingsEnabled(false);
+            try { cats.run_cmd(refuelTest: true); }
+            catch (Exception error)
+            {
+                TraversalFinished();
+                MessageBox.Show("Cannot start refuel test: " + error.Message, "CATS");
+            }
         }
 
         private void SetSchedule(DateTime value)

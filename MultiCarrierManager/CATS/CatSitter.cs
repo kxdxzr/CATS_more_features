@@ -33,7 +33,7 @@ namespace MultiCarrierManager.CATS
             catch (InvalidOperationException) { }
         }
 
-        public void run_cmd()
+        public void run_cmd(bool refuelTest = false)
         {
             if (process != null) throw new InvalidOperationException("Previous traversal has not stopped.");
             output.Clear();
@@ -45,6 +45,7 @@ namespace MultiCarrierManager.CATS
             running.StartInfo = new ProcessStartInfo
             {
                 FileName = Path.GetFullPath("CATS\\pyinstaller\\TraversalSystem\\TraversalSystem-new.exe"),
+                Arguments = refuelTest ? "--refuel-test" : "",
                 WorkingDirectory = Path.GetFullPath("CATS"),
                 UseShellExecute = false,
                 CreateNoWindow = true,

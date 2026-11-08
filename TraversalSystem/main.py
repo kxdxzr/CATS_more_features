@@ -106,7 +106,7 @@ res_handler = Reshandler(screen_width, screen_height)
 journal_watcher = JournalWatcher()
 discord_messenger = DiscordHandler()
 
-def load_settings():
+def load_settings(force_refuel=False):
     global tritium_slot
     global webhook_url
     global journal_directory
@@ -186,7 +186,7 @@ def load_settings():
         completion_action = actions[-1] if actions else ("shutdown" if shutdown_on_complete else "keep-open")
         if completion_action not in ("keep-open", "close-apps", "shutdown"):
             raise ValueError("Invalid completion-action")
-        if auto_plot_jumps and not disable_refuel:
+        if force_refuel or (auto_plot_jumps and not disable_refuel):
             tritium_slot = int(tritium_slot)
             if tritium_slot < 0:
                 raise ValueError("Tritium slot must be a non-negative integer")
@@ -295,10 +295,10 @@ def follow_button_sequence(sequence_name):
             time.sleep(slight_random_time(wait_time))
 
 
-def restock_tritium():
+def restock_tritium(force=False):
     global refuel_mode
 
-    if not auto_plot_jumps or disable_refuel:
+    if not force and (not auto_plot_jumps or disable_refuel):
         # If manual jumping is enabled or automatic refuel is disabled, skip function execution
         return
     
@@ -325,6 +325,18 @@ def restock_tritium():
                 time.sleep(slight_random_time(0.1))
 
     print("Refuel process completed.")
+
+
+def run_refuel_test():
+    load_settings(force_refuel=True)
+    print("Refuel test: sequence only; no route, scheduled start or completion action.")
+    print("Switch to Elite Dangerous and prepare the carrier interface. Press Stop to cancel.")
+    for remaining in range(10, 0, -1):
+        print("Refuel test begins in %d seconds..." % remaining, flush=True)
+        time.sleep(1)
+    restock_tritium(force=True)
+    print("Refuel test sequence finished. Check the game and fuel level manually.")
+    return True
 
 
 def jump_to_system(system_name):
@@ -777,10 +789,13 @@ def main_loop():
                     case 100:
                         discord_messenger.update_fields(8, 9)
                     case 150:
-                        print("Restocking tritium...")
-                        time.sleep(2)
-                        refuel_thread = threading.Thread(target=refuel_job, daemon=True)
-                        refuel_thread.start()
+                        if auto_plot_jumps and not disable_refuel:
+                            print("Restocking tritium...")
+                            time.sleep(2)
+                            refuel_thread = threading.Thread(target=refuel_job, daemon=True)
+                            refuel_thread.start()
+                        else:
+                            print("Automatic refuelling is disabled; skipping.")
 
                 time.sleep(1)
                 totalTime -= 1
@@ -863,7 +878,7 @@ if not res_handler.supported_res:
     os._exit(1)
 else:
     try:
-        if not main_loop():
+        if not (run_refuel_test() if sys.argv[1:] == ["--refuel-test"] else main_loop()):
             print("Aborted.")
             os._exit(2)
     except (Stopped, KeyboardInterrupt):

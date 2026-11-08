@@ -36,6 +36,22 @@ class GuiChecks
                 var date = (DateTimePicker)form.Controls.Find("scheduleDate", true)[0];
                 var time = (DateTimePicker)form.Controls.Find("scheduleTime", true)[0];
                 var enabled = (CheckBox)form.Controls.Find("scheduleEnabled", true)[0];
+                Check(form.Controls.Find("refuelTestButton", true).Length == 1, "Refuel test button missing");
+                var routeBox = form.Controls.Find("textBox2", true)[0];
+                var startBox = form.Controls.Find("comboBox1", true)[0];
+                var scheduleHelp = form.Controls.Find("label9", true)[0];
+                foreach (int extraHeight in new[] { 0, 100, 400 })
+                {
+                    form.ClientSize = new System.Drawing.Size(form.ClientSize.Width, 630 + extraHeight);
+                    form.PerformLayout();
+                    foreach (string name in new[] { "scheduleEnabled", "scheduleDate", "scheduleTime", "scheduleNow", "scheduleTenMinutes", "scheduleHour" })
+                    {
+                        var control = form.Controls.Find(name, true)[0];
+                        Check(!control.Bounds.IntersectsWith(routeBox.Bounds), name + " overlaps route at height " + extraHeight);
+                        Check(!control.Bounds.IntersectsWith(startBox.Bounds), name + " overlaps starting point at height " + extraHeight);
+                        Check(!control.Bounds.IntersectsWith(scheduleHelp.Bounds), name + " overlaps help at height " + extraHeight);
+                    }
+                }
                 Check(date.Value.ToString("yyyy-MM-dd") == "2026-10-15" && time.Value.Hour == 21, "Old schedule load failed");
                 Invoke(form.Controls.Find("scheduleTenMinutes", true)[0], "OnClick", EventArgs.Empty);
                 DateTime parsed = DateTime.Parse(settings.ScheduledStart);

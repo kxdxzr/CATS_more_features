@@ -88,6 +88,25 @@ class JournalTests(unittest.TestCase):
 
 
 class ControlTests(unittest.TestCase):
+    def test_refuel_test_bypasses_disabled_option_without_route_or_shutdown(self):
+        source = ast.parse((ROOT / 'TraversalSystem/main.py').read_text(encoding='utf-8'))
+        funcs = [n for n in source.body if isinstance(n, ast.FunctionDef) and n.name in ('restock_tritium', 'run_refuel_test')]
+        sequence, settings, sleep, system = Mock(), Mock(), Mock(), Mock()
+        scope = dict(load_settings=settings, follow_button_sequence=sequence,
+                     auto_plot_jumps=False, disable_refuel=True, refuel_mode=2, tritium_slot=2,
+                     os=SimpleNamespace(path=SimpleNamespace(isfile=lambda path: True), system=system),
+                     pydirectinput=Mock(), time=SimpleNamespace(sleep=sleep),
+                     slight_random_time=lambda x: x, print=Mock())
+        exec(compile(ast.Module(body=funcs, type_ignores=[]), '<refuel-test>', 'exec'), scope)
+        scope['restock_tritium']()
+        sequence.assert_not_called()
+        self.assertTrue(scope['run_refuel_test']())
+        settings.assert_called_once_with(force_refuel=True)
+        self.assertEqual([call.args[0] for call in sequence.call_args_list],
+                         ['squadron/restock_fc.txt', 'squadron/open_cargo_transfer.txt', 'squadron/restock_cargo.txt'])
+        self.assertEqual(scope['pydirectinput'].press.call_count, 2)
+        system.assert_not_called()
+
     def test_stop_releases_held_keys_saves_and_blocks_further_input(self):
         control = RuntimeControl()
         keyboard = Mock()
@@ -150,7 +169,7 @@ class CompletionTests(unittest.TestCase):
                              localtime=__import__('time').localtime), os=SimpleNamespace(path=os.path, system=system),
                              threading=threads, tzlocal=SimpleNamespace(get_localzone=lambda: UTC),
                              journal_watcher=watcher, discord_messenger=Mock(), power_saving=power,
-                             completion_action=action, route_file=str(route), disable_refuel=True,
+                             completion_action=action, route_file=str(route), disable_refuel=True, auto_plot_jumps=True,
                              webhook_url='', journal_directory=temp, control=RuntimeControl(), print=Mock())
                 exec(code, scope)
                 scope.update(load_settings=Mock(), wait_for_scheduled_start=Mock(), wait_for_carrier_ready=Mock(),

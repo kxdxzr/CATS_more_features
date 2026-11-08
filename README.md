@@ -21,6 +21,8 @@ for the carrier administration and traversal functionality.
   new requests, and handle journal rotation and partially written records.
 - **Personal carrier refuelling adjustment:** remove four redundant `e` presses from the cargo-transfer sequence.
   Squadron sequences have not been changed.
+- **Refuel test:** run the selected refuelling sequence once without starting a route or completion action.
+  This sends real game input and can move cargo; verify the result in game.
 - **Configuration and build improvements:** allow an empty tritium slot when automatic refuelling is disabled,
   and build/use journal-based traversal without a Frontier client ID.
 
@@ -72,6 +74,14 @@ shutdown-on-complete=False
 Please report bugs in this fork's [Issues](https://github.com/kxdxzr/CATS_more_features/issues), including
 reproduction steps, relevant settings and log excerpts. See [building.md](building.md) for test commands,
 build requirements and deployment layout.
+
+### Testing refuelling
+
+In the latest source build, set the refuelling mode in Options and enter the appropriate Tritium Slot, then click
+**Test refuel...**. After confirming, switch to the prepared game interface within 10 seconds. The test runs once
+even if automatic refuelling is disabled, and does not start a route, shut down the computer or close the game.
+Use **Stop CATS** to cancel. A completed input sequence does not prove fuel was transferred: check the game and
+fuel level manually. This button is not included in the existing `v3.2.2-beta.1` release; build the latest source.
 
 ---
 
