@@ -92,7 +92,11 @@ namespace MultiCarrierManager.CATS
                         job = null;
                         isRunning = false;
                         form.TraversalFinished();
-                        if (exitApplication) Application.Exit();
+                        if (exitApplication)
+                        {
+                            if (Program.settings.ScreenOffOnClose) ScheduleDisplaysOff();
+                            Application.Exit();
+                        }
                     });
                 });
             }
@@ -110,6 +114,12 @@ namespace MultiCarrierManager.CATS
 
         private void HandleOutput(string line)
         {
+            const string countdownPrefix = "CATS_COUNTDOWN:";
+            if (line.StartsWith(countdownPrefix, StringComparison.Ordinal))
+            {
+                countdownLabel.Text = line.Substring(countdownPrefix.Length);
+                return;
+            }
             int remaining;
             if (int.TryParse(line, out remaining))
             {
@@ -133,6 +143,20 @@ namespace MultiCarrierManager.CATS
             if (stage != null) form.Text = $"CATS | En route to {finalSystem} | Next stop: {nextSystem} | {stage}";
         }
 
+        private static void ScheduleDisplaysOff()
+        {
+            // Delay until the GUI exits; SC_MONITORPOWER only requests display power off,
+            // not system sleep. User activity or Windows can wake displays again.
+            string script = "Start-Sleep -Seconds 2; Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class DisplayPower { [DllImport(\"user32.dll\", SetLastError=true)] public static extern IntPtr SendMessageTimeout(IntPtr h, uint m, IntPtr w, IntPtr l, uint f, uint t, out IntPtr r); }'; $r=[IntPtr]::Zero; [DisplayPower]::SendMessageTimeout([IntPtr]0xffff,0x112,[IntPtr]0xf170,[IntPtr]2,2,1000,[ref]$r) | Out-Null";
+            try
+            {
+                Process.Start(new ProcessStartInfo("powershell.exe", "-NoProfile -NonInteractive -EncodedCommand " + Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(script)))
+                { UseShellExecute = false, CreateNoWindow = true });
+                Program.logger.Log("Display power-off requested after CATS exit");
+            }
+            catch (Exception error) { Program.logger.LogError("Display power-off request failed: " + error.Message); }
+        }
+
         public bool close()
         {
             var running = process;
@@ -145,7 +169,7 @@ namespace MultiCarrierManager.CATS
                 {
                     try { running.StandardInput.WriteLine("stop"); running.StandardInput.Flush(); }
                     catch (IOException) { }
-                    if (!running.WaitForExit(1500))
+                    if (!running.WaitForExit(Program.settings.DimDuringJump ? 30000 : 1500))
                     {
                         Program.logger.Log("TraversalStop: terminating process job");
                         if (!job.Stop()) return false;

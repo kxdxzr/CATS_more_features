@@ -19,6 +19,9 @@ namespace MultiCarrierManager
         public string ScheduledStart { get; private set; }
         public bool ShutdownOnComplete { get; private set; }
         public string CompletionAction { get; private set; }
+        public string UnknownTransferPolicy { get; private set; }
+        public bool DimDuringJump { get; private set; }
+        public bool ScreenOffOnClose { get; private set; }
 
         public SettingsManager(string file)
         {
@@ -69,7 +72,16 @@ namespace MultiCarrierManager
                 {
                     CompletionAction = line.Split('=')[1].Trim();
                 }
+                else if (line.StartsWith("unknown-transfer-policy="))
+                {
+                    UnknownTransferPolicy = line.Split('=')[1].Trim();
+                }
+                else if (line.StartsWith("dim-during-jump=")) DimDuringJump = Convert.ToBoolean(line.Split('=')[1]);
+                else if (line.StartsWith("screen-off-on-close=")) ScreenOffOnClose = Convert.ToBoolean(line.Split('=')[1]);
             }
+            if (UnknownTransferPolicy == null) UnknownTransferPolicy = "stop";
+            if (UnknownTransferPolicy != "stop" && UnknownTransferPolicy != "ignore")
+                throw new FormatException("Invalid unknown-transfer-policy");
             if (CompletionAction == null) CompletionAction = ShutdownOnComplete ? "shutdown" : "keep-open";
             if (CompletionAction != "keep-open" && CompletionAction != "close-apps" && CompletionAction != "shutdown")
                 throw new FormatException("Invalid completion-action");
@@ -212,5 +224,15 @@ namespace MultiCarrierManager
             ReplaceInArray("shutdown-on-complete", ShutdownOnComplete);
             ReplaceInArray("completion-action", action);
         }
+
+        public void SetUnknownTransferPolicy(string policy)
+        {
+            if (policy != "stop" && policy != "ignore") throw new ArgumentException("Invalid transfer policy");
+            UnknownTransferPolicy = policy;
+            ReplaceInArray("unknown-transfer-policy", policy);
+        }
+
+        public void SetDimDuringJump(bool value) { DimDuringJump = value; ReplaceInArray("dim-during-jump", value); }
+        public void SetScreenOffOnClose(bool value) { ScreenOffOnClose = value; ReplaceInArray("screen-off-on-close", value); }
     }
 }

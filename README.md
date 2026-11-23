@@ -83,6 +83,36 @@ even if automatic refuelling is disabled, and does not start a route, shut down 
 Use **Stop CATS** to cancel. A completed input sequence does not prove fuel was transferred: check the game and
 fuel level manually. This button is not included in the older `v3.2.2-beta.1` release.
 
+### Experimental warehouse extraction guard
+
+After a warehouse transfer, CATS checks new `CargoTransfer` journal events for cargo moved to the ship.
+If these events are missing, it also compares valid, freshly updated ship `Cargo.json` inventory snapshots
+from before and after extraction. Increased non-tritium inventory blocks subsequent extraction; increased
+tritium alone is treated as supporting evidence, not proof of the transfer's source.
+If it observes non-tritium cargo, it skips subsequent warehouse extractions for the current run and continues
+attempting the fuel-depot sequence. This check happens **after** the transfer: it cannot prevent or undo the
+first incorrect transfer, and the depot-only sequence is not verified with mixed ship cargo.
+
+In Options, `If warehouse transfer cannot be identified` selects whether to stop further warehouse extraction
+for this run (default) or ignore the missing evidence and continue. Ignoring uncertainty can cause repeated
+incorrect transfers. Restarting the task resets the guard. The updated guard has only been tested with synthetic
+events, not in game. Do not manually transfer cargo during the automatic sequence:
+events cannot be reliably attributed to a particular source or UI action.
+
+### Experimental display controls
+
+Options includes independent checkboxes to dim supported displays to their reported hardware minimum throughout
+the route, including scheduled-start waits, and to request display power-off after successfully closing the game and CATS. Both default off.
+Brightness stays low during navigation, game relaunch and refuelling; it is restored at route completion, and on Stop or catchable errors.
+Display power-off is requested only for the close-game-and-CATS completion action, not for manual Stop or other
+completion actions. It does not request computer sleep; Windows or input may wake displays immediately.
+
+Internal displays use Windows WMI brightness methods; external displays require working DDC/CI. Some displays,
+drivers and docks do not support these controls. Unsupported displays are reported and remain unchanged. Hardware
+brightness restoration is best effort; forced process termination, power loss, changed monitor topology, driver
+errors or unresponsive displays can leave brightness changed and require manual restoration. These features have
+not yet been verified on real hardware.
+
 ---
 
 ## Original CATS overview

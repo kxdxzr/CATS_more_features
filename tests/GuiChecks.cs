@@ -76,7 +76,15 @@ class GuiChecks
                     }
                 }
                 var output = (TextBox)form.Controls.Find("textBox1", true)[0];
-                var cats = new CatSitter(output, form, new Label(), new Label());
+                var countdown = new Label();
+                var eta = new Label { Text = "ETA: route completion" };
+                var cats = new CatSitter(output, form, countdown, eta);
+                output.Clear();
+                Invoke(cats, "HandleOutput", "CATS_COUNTDOWN:Scheduled start: 0:09:59");
+                Check(countdown.Text == "Scheduled start: 0:09:59", "Scheduled countdown not shown");
+                Check(output.Text == "" && eta.Text == "ETA: route completion", "Countdown polluted log or route ETA");
+                Invoke(cats, "HandleOutput", "CATS_COUNTDOWN:Current jump: 0:05:00");
+                Check(countdown.Text == "Current jump: 0:05:00" && output.Text == "", "Existing jump countdown failed");
                 foreach (string phase in new [] { "navigation", "countdown", "scheduled", "cooperative" })
                 {
                     File.WriteAllText("CATS/mode.txt", phase);

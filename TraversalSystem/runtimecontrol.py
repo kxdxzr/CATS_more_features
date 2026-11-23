@@ -15,6 +15,7 @@ class RuntimeControl:
         self.held_keys = set()
         self.keyboard = None
         self.save_progress = lambda: None
+        self.restore_displays = lambda: None
 
     def check(self):
         if self.stopped.is_set():
@@ -31,6 +32,10 @@ class RuntimeControl:
                 self.save_progress()
             except Exception as error:
                 print("Could not save stopped route: %s" % error, flush=True)
+            try:
+                self.restore_displays()
+            except Exception as error:
+                print("WARNING: Could not restore displays: %s" % error, flush=True)
             if self.keyboard is not None:
                 for key in list(self.held_keys):
                     try:

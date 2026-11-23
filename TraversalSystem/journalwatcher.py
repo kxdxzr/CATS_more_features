@@ -13,6 +13,7 @@ def event_time(event):
 class JournalWatcher:
     # A conservative five-minute cooldown after the actual arrival event.
     COOLDOWN_SECONDS = 300
+    STALE_REQUEST_SECONDS = 30 * 60
 
     def __init__(self):
         self.lock = threading.RLock()
@@ -34,6 +35,8 @@ class JournalWatcher:
             self.request_started = None
             self.last_system = None
             self.unknown_until = None
+            self.cargo_transfer_serial = 0
+            self.cargo_transfer_events = []
 
     def initialize(self, directory):
         """Recover state across recent sessions without reporting historical jumps as new."""
@@ -77,6 +80,10 @@ class JournalWatcher:
                 if fuel < self.lastFuel and fuel < 100:
                     print('alert:Your Tritium is running low.')
             self.lastFuel = fuel
+        elif kind == 'CargoTransfer' and not historical:
+            self.cargo_transfer_serial += 1
+            self.cargo_transfer_events.append((self.cargo_transfer_serial, event.get('Transfers')))
+            self.cargo_transfer_events = self.cargo_transfer_events[-100:]
         elif kind == 'CarrierJumpRequest':
             if self.carrier_id is not None and event.get('CarrierID') != self.carrier_id:
                 return
@@ -134,7 +141,16 @@ class JournalWatcher:
         with self.lock:
             now = now or datetime.datetime.now(UTC)
             if self.pending is not None:
-                return 'jump in progress; waiting for arrival confirmation', None
+                try:
+                    departure = datetime.datetime.fromisoformat(self.pending['DepartureTime'].replace('Z', '+00:00'))
+                    if departure.tzinfo is None:
+                        raise ValueError('departure time has no timezone')
+                except (KeyError, ValueError, TypeError, AttributeError):
+                    return 'jump in progress; departure time unknown; waiting for arrival confirmation', None
+                if now <= departure + datetime.timedelta(seconds=self.STALE_REQUEST_SECONDS):
+                    return 'jump in progress; waiting for arrival confirmation', None
+                print('WARNING: Ignoring stale carrier jump request; departure was over 30 minutes ago.', flush=True)
+                self.pending = None
             until = self.last_jump_at + datetime.timedelta(seconds=self.COOLDOWN_SECONDS) if self.last_jump_at else None
             if self.unknown_until and (until is None or self.unknown_until > until):
                 until = self.unknown_until
@@ -143,6 +159,49 @@ class JournalWatcher:
                 until = max(until, cancelled_until) if until else cancelled_until
             remaining = max(0, (until - now).total_seconds()) if until else 0
             return ('cooldown', remaining) if remaining else ('ready', 0)
+
+    def cargo_transfer_marker(self):
+        with self.lock:
+            return self.cargo_transfer_serial
+
+    def pending_jump_countdown(self, now=None):
+        """Return destination and seconds until scheduled departure, if known."""
+        with self.lock:
+            if self.pending is None:
+                return None
+            try:
+                departure = datetime.datetime.fromisoformat(self.pending['DepartureTime'].replace('Z', '+00:00'))
+                if departure.tzinfo is None:
+                    return None
+                now = now or datetime.datetime.now(UTC)
+                return self.pending.get('SystemName', 'unknown'), max(0, int((departure - now).total_seconds()))
+            except (KeyError, ValueError, TypeError, AttributeError):
+                return None
+
+    def pending_jump_identity(self):
+        with self.lock:
+            if self.pending is None:
+                return None
+            try:
+                destination = self.pending['SystemName']
+                requested = event_time(self.pending)
+                if not isinstance(destination, str) or not destination or requested.tzinfo is None:
+                    return None
+                return destination, requested
+            except (KeyError, ValueError, TypeError, AttributeError):
+                return None
+
+    def arrival_matches(self, identity):
+        with self.lock:
+            return (identity is not None and self.pending is None and self.last_jump_at is not None
+                    and isinstance(self.last_system, str)
+                    and self.last_system.casefold() == identity[0].casefold()
+                    and self.last_jump_at >= identity[1]
+                    and (self.cancelled_at is None or self.cancelled_at < identity[1]))
+
+    def cargo_transfers_since(self, marker):
+        with self.lock:
+            return [(serial, transfers) for serial, transfers in self.cargo_transfer_events if serial > marker]
 
     def raise_if_cancelled(self):
         if self.cancelled_at and self.request_started and self.cancelled_at >= self.request_started:

@@ -33,6 +33,7 @@ import tzlocal
 import psutil
 
 from journalwatcher import JournalWatcher
+from cargo_snapshot import read_snapshot, classify_change
 from discordhandler import DiscordHandler
 from reshandler import Reshandler
 from runtimecontrol import control, clock as time, ControlledInput, Stopped
@@ -94,6 +95,10 @@ scheduled_start = ""
 global shutdown_on_complete
 shutdown_on_complete = False
 completion_action = "keep-open"
+unknown_transfer_policy = "stop"
+warehouse_extraction_blocked = False
+dim_during_jump = False
+display_brightness = None
 
 # Get the screen resolution
 screen_width, screen_height = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
@@ -118,6 +123,8 @@ def load_settings(force_refuel=False):
     global scheduled_start
     global shutdown_on_complete
     global completion_action
+    global unknown_transfer_policy
+    global dim_during_jump
     # AFAIK, it is impossible to launch the script without either settings file existing
 
     # Get settings from settings.txt
@@ -186,6 +193,11 @@ def load_settings(force_refuel=False):
         completion_action = actions[-1] if actions else ("shutdown" if shutdown_on_complete else "keep-open")
         if completion_action not in ("keep-open", "close-apps", "shutdown"):
             raise ValueError("Invalid completion-action")
+        policies = [line.split("=", 1)[1].strip() for line in config_lines if line.startswith("unknown-transfer-policy=")]
+        unknown_transfer_policy = policies[-1] if policies else "stop"
+        if unknown_transfer_policy not in ("stop", "ignore"):
+            raise ValueError("Invalid unknown-transfer-policy")
+        dim_during_jump = any(line.strip().lower() == "dim-during-jump=true" for line in config_lines)
         if force_refuel or (auto_plot_jumps and not disable_refuel):
             tritium_slot = int(tritium_slot)
             if tritium_slot < 0:
@@ -220,6 +232,7 @@ def wait_for_scheduled_start():
     except ValueError as e:
         print(e)
         print("Aborting: fix scheduled-start in settings/settings.ini (empty = start now).")
+        restore_displays()
         os._exit(1)
     if target is None:
         return
@@ -236,14 +249,12 @@ def wait_for_scheduled_start():
         "The Flight Computer will begin at %s." % target.strftime("%Y-%m-%d %H:%M"),
         "o7"
     )
-    last_print = datetime.datetime.min
     while datetime.datetime.now() < target:
         now = datetime.datetime.now()
-        if (now - last_print).total_seconds() >= 60:
-            print("Scheduled start at %s, remaining %s..."
-                  % (target.strftime("%Y-%m-%d %H:%M"), str(target - now).split(".")[0]))
-            last_print = now
+        remaining = max(0, int((target - now).total_seconds()))
+        print("CATS_COUNTDOWN:Scheduled start: %s" % datetime.timedelta(seconds=remaining), flush=True)
         time.sleep(min(1, max(0, (target - datetime.datetime.now()).total_seconds())))
+    print("CATS_COUNTDOWN:Starting route...", flush=True)
     print("Scheduled time reached. Starting traversal...")
 
 
@@ -255,19 +266,48 @@ def latest_journal():
     return max(files, key=os.path.getmtime)
 
 
-def wait_for_carrier_ready():
-    last_report = 0
+def wait_for_carrier_ready(refuel_existing_jump=False):
+    existing_jump = None
+    refuel_thread = None
+    refuel_errors = []
+    def refuel_existing():
+        try:
+            restock_tritium()
+        except Exception as error:
+            refuel_errors.append(error)
     while True:
         control.check()
         journal_watcher.process_journal(latest_journal())
         state, remaining = journal_watcher.readiness()
+        identity = journal_watcher.pending_jump_identity() if refuel_existing_jump else None
+        if identity is not None:
+            existing_jump = identity
+        if (existing_jump is not None and refuel_thread is None and auto_plot_jumps and not disable_refuel
+                and remaining is not None and remaining <= 150
+                and journal_watcher.arrival_matches(existing_jump)):
+            print("Restocking tritium after the existing jump...", flush=True)
+            refuel_thread = threading.Thread(target=refuel_existing, daemon=True)
+            refuel_thread.start()
         if state == "ready":
+            if refuel_thread is not None and refuel_thread.is_alive():
+                print("CATS_COUNTDOWN:Waiting for refuelling", flush=True)
+                time.sleep(1)
+                continue
+            if refuel_errors:
+                raise RuntimeError("Refuelling failed: %s" % refuel_errors[0])
+            print("CATS_COUNTDOWN:Carrier ready", flush=True)
             print("Carrier ready for navigation.")
             return
-        if time.monotonic() - last_report >= 10 or not last_report:
-            detail = state if remaining is None else "cooldown: %d seconds remaining" % remaining
-            print("Waiting for carrier " + detail, flush=True)
-            last_report = time.monotonic()
+        pending = journal_watcher.pending_jump_countdown() if remaining is None else None
+        if pending:
+            destination, seconds = pending
+            if seconds:
+                detail = "Current jump: %s" % datetime.timedelta(seconds=seconds)
+            else:
+                detail = "Jump: waiting for arrival confirmation"
+        else:
+            detail = state if remaining is None else "Cooldown: %s" % datetime.timedelta(seconds=int(remaining))
+        print("CATS_COUNTDOWN:" + detail, flush=True)
         time.sleep(1)
 
 
@@ -295,16 +335,57 @@ def follow_button_sequence(sequence_name):
             time.sleep(slight_random_time(wait_time))
 
 
+def check_extracted_cargo(marker, baseline=None, timeout=10):
+    """Inspect new ship-bound transfer events; unknown never proves tritium."""
+    deadline = time.monotonic() + timeout
+    saw_tritium = False
+    saw_wrong_snapshot = False
+    while True:
+        try:
+            journal_watcher.process_journal(latest_journal())
+            events = journal_watcher.cargo_transfers_since(marker)
+        except (OSError, ValueError) as error:
+            print("WARNING: Could not inspect cargo transfer: %s" % error, flush=True)
+            return 'unknown'
+        if events:
+            items = [item for _, transfers in events if isinstance(transfers, list)
+                     for item in transfers if isinstance(item, dict) and item.get('Direction', '').casefold() == 'toship']
+            if any(isinstance(item.get('Type'), str) and item['Type'].casefold() != 'tritium' for item in items):
+                return 'wrong'
+            if items and all(isinstance(item.get('Type'), str) and item['Type'].casefold() == 'tritium' for item in items):
+                saw_tritium = True
+        snapshot_result = classify_change(baseline, read_snapshot(journal_directory))
+        if snapshot_result == 'wrong':
+            saw_wrong_snapshot = True
+        elif snapshot_result == 'tritium':
+            saw_tritium = True
+        if time.monotonic() >= deadline:
+            if saw_wrong_snapshot:
+                print('WARNING: Cargo snapshot indicates non-tritium inventory increased.', flush=True)
+                return 'wrong'
+            if saw_tritium and snapshot_result == 'tritium':
+                print('Cargo snapshot indicates tritium inventory increased.', flush=True)
+            return 'tritium' if saw_tritium else 'unknown'
+        time.sleep(0.5)
+
+
 def restock_tritium(force=False):
     global refuel_mode
+    global warehouse_extraction_blocked
 
     if not force and (not auto_plot_jumps or disable_refuel):
         # If manual jumping is enabled or automatic refuel is disabled, skip function execution
         return
     
-    restock_order = ["restock_fc", "open_cargo_transfer", "restock_cargo"]
+    # Always attempt the fuel-depot step, including after warehouse extraction is blocked.
+    restock_order = ["restock_fc"] if warehouse_extraction_blocked else ["restock_fc", "open_cargo_transfer", "restock_cargo"]
 
     for step in restock_order:
+        if step == "restock_cargo":
+            # Drain prior journal events before taking the marker, so historical transfers cannot match.
+            journal_watcher.process_journal(latest_journal())
+            transfer_marker = journal_watcher.cargo_transfer_marker()
+            cargo_baseline = read_snapshot(journal_directory)
         if refuel_mode == 2 and os.path.isfile(f"sequences/squadron/{step}.txt"):
             follow_button_sequence(f"squadron/{step}.txt")  # follow the button sequence for each step
         else:
@@ -315,20 +396,32 @@ def restock_tritium(force=False):
             if refuel_mode == 1: # Bug fix mode
                 pydirectinput.press('w')
                 time.sleep(slight_random_time(0.1))
-            
+
             for _ in range(tritium_slot):
                 if refuel_mode == 2 or refuel_mode == 1: # Squadron or bug fix mode
                     pydirectinput.press('s')
                 else: # Regular personal mode
                     pydirectinput.press('w')
-               
+
                 time.sleep(slight_random_time(0.1))
+
+        if step == "restock_cargo":
+            result = check_extracted_cargo(transfer_marker, cargo_baseline)
+            if result == 'wrong' or (result == 'unknown' and unknown_transfer_policy == 'stop'):
+                warehouse_extraction_blocked = True
+                print("WARNING: %s. Warehouse extraction disabled for this run; depot-only refuelling will continue."
+                      % ("Non-tritium cargo transferred" if result == 'wrong' else "Could not confirm extracted cargo"), flush=True)
+            elif result == 'unknown':
+                print("WARNING: Could not confirm extracted cargo; ignoring according to settings.", flush=True)
+            else:
+                print("Warehouse transfer confirmed as tritium.", flush=True)
 
     print("Refuel process completed.")
 
 
 def run_refuel_test():
     load_settings(force_refuel=True)
+    journal_watcher.initialize(journal_directory)
     print("Refuel test: sequence only; no route, scheduled start or completion action.")
     print("Switch to Elite Dangerous and prepare the carrier interface. Press Stop to cancel.")
     for remaining in range(10, 0, -1):
@@ -506,8 +599,13 @@ def main_loop():
     global latestJournal
     global stopJournalThread
     global progress_started, route_completed
+    global display_brightness
 
     load_settings()
+    if dim_during_jump:
+        from display_control import WindowsBrightness
+        display_brightness = WindowsBrightness()
+        control.restore_displays = restore_displays
 
     # Validate the route before waiting or starting background work.
     try:
@@ -519,6 +617,11 @@ def main_loop():
     if not route_list:
         print("Route file is empty. Exiting...")
         os._exit(1)
+
+    if display_brightness:
+        with control.lock:
+            control.check()
+            display_brightness.dim()
 
     wait_for_scheduled_start()
 
@@ -541,13 +644,14 @@ def main_loop():
         lineNo = int((open("save.txt", "r", encoding="utf-8")).read())
         if not 0 <= lineNo < len(route_list):
             print("Saved route position is out of range. Aborting...")
+            restore_displays()
             os._exit(1)
         os.remove("save.txt")
 
         saved = True
 
     progress_started = True
-    wait_for_carrier_ready()
+    wait_for_carrier_ready(refuel_existing_jump=True)
 
     for countdown in range(5, 0, -1):
         print(f"Beginning in {countdown}...")
@@ -691,6 +795,7 @@ def main_loop():
 
 
         except Exception as e:
+            restore_displays()
             print(e)
             print("An error has occurred. Saving progress and aborting...")
             discord_messenger.post_to_discord(
@@ -808,8 +913,8 @@ def main_loop():
                 raise RuntimeError("Refuelling failed: %s" % refuel_errors[0])
         doneFirst = True
         lineNo = i + 1
-
     route_completed = True
+    restore_displays()
     print("Route complete!")
     discord_messenger.post_to_discord(
         "Carrier Arrived",
@@ -852,6 +957,7 @@ def process_journal(file_name):
             print("Journal processing failed: %s" % e)
             c = False
         if not c:
+            restore_displays()
             print("An error has occurred. Saving progress and aborting...")
             discord_messenger.post_to_discord(
                 "Critical Error",
@@ -873,6 +979,11 @@ def process_journal(file_name):
     print("Journal thread halted")
 
 
+def restore_displays():
+    if display_brightness:
+        display_brightness.restore()
+
+
 if not res_handler.supported_res:
     print("Resolution not supported, exiting...")
     os._exit(1)
@@ -885,6 +996,10 @@ else:
         control.stop_and_exit()
     except Exception as e:
         stopJournalThread = True
+        try:
+            restore_displays()
+        except Exception as display_error:
+            print("WARNING: Could not restore displays: %s" % display_error, flush=True)
         try:
             save_stopped_progress()
         except Exception as save_error:

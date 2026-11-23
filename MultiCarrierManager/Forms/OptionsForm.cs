@@ -33,6 +33,9 @@ namespace MultiCarrierManager
             Program.settings.SetRefuelMode(comboBox1.SelectedIndex);
 
             Program.settings.SetCompletionAction(new[] { "keep-open", "close-apps", "shutdown" }[completionAction.SelectedIndex]);
+            Program.settings.SetUnknownTransferPolicy(unknownTransferAction.SelectedIndex == 0 ? "stop" : "ignore");
+            Program.settings.SetDimDuringJump(dimDuringJump.Checked);
+            Program.settings.SetScreenOffOnClose(screenOffOnClose.Checked);
 
             Close();
         }
@@ -49,6 +52,9 @@ namespace MultiCarrierManager
             comboBox1.SelectedIndex = Program.settings.RefuelMode;
 
             completionAction.SelectedIndex = Array.IndexOf(new[] { "keep-open", "close-apps", "shutdown" }, Program.settings.CompletionAction);
+            unknownTransferAction.SelectedIndex = Program.settings.UnknownTransferPolicy == "ignore" ? 1 : 0;
+            dimDuringJump.Checked = Program.settings.DimDuringJump;
+            screenOffOnClose.Checked = Program.settings.ScreenOffOnClose;
         }
     }
 }

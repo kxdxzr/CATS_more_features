@@ -42,6 +42,10 @@ namespace MultiCarrierManager
             this.label1 = new System.Windows.Forms.Label();
             this.completionLabel = new System.Windows.Forms.Label();
             this.completionAction = new System.Windows.Forms.ComboBox();
+            this.unknownTransferLabel = new System.Windows.Forms.Label();
+            this.unknownTransferAction = new System.Windows.Forms.ComboBox();
+            this.dimDuringJump = new System.Windows.Forms.CheckBox();
+            this.screenOffOnClose = new System.Windows.Forms.CheckBox();
             this.SuspendLayout();
             // 
             // checkBox2
@@ -74,7 +78,7 @@ namespace MultiCarrierManager
             // button1
             // 
             this.button1.Anchor = System.Windows.Forms.AnchorStyles.Bottom;
-            this.button1.Location = new System.Drawing.Point(12, 273);
+            this.button1.Location = new System.Drawing.Point(12, 386);
             this.button1.Name = "button1";
             this.button1.Size = new System.Drawing.Size(344, 45);
             this.button1.TabIndex = 4;
@@ -129,12 +133,30 @@ namespace MultiCarrierManager
             this.completionAction.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.completionAction.Items.AddRange(new object[] { "Keep game and CATS open", "Close game and CATS", "Shut down computer (30 second countdown)" });
             this.completionAction.TabIndex = 9;
+            this.unknownTransferLabel.Location = new System.Drawing.Point(12, 267);
+            this.unknownTransferLabel.Size = new System.Drawing.Size(344, 20);
+            this.unknownTransferLabel.Text = "If warehouse transfer cannot be identified";
+            this.unknownTransferAction.Location = new System.Drawing.Point(12, 289);
+            this.unknownTransferAction.Name = "unknownTransferAction";
+            this.unknownTransferAction.Size = new System.Drawing.Size(344, 21);
+            this.unknownTransferAction.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.unknownTransferAction.Items.AddRange(new object[] { "Stop warehouse extraction for this run", "Ignore and keep extracting" });
+            this.dimDuringJump.Location = new System.Drawing.Point(12, 319);
+            this.dimDuringJump.Size = new System.Drawing.Size(344, 24);
+            this.dimDuringJump.Text = "Dim supported displays while the route runs";
+            this.screenOffOnClose.Location = new System.Drawing.Point(12, 349);
+            this.screenOffOnClose.Size = new System.Drawing.Size(344, 24);
+            this.screenOffOnClose.Text = "Turn off displays after closing game and CATS";
             //
             // OptionsForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(368, 330);
+            this.ClientSize = new System.Drawing.Size(368, 443);
+            this.Controls.Add(this.dimDuringJump);
+            this.Controls.Add(this.screenOffOnClose);
+            this.Controls.Add(this.unknownTransferLabel);
+            this.Controls.Add(this.unknownTransferAction);
             this.Controls.Add(this.label1);
             this.Controls.Add(this.comboBox1);
             this.Controls.Add(this.completionLabel);
@@ -156,6 +178,10 @@ namespace MultiCarrierManager
 
         private System.Windows.Forms.Label completionLabel;
         private System.Windows.Forms.ComboBox completionAction;
+        private System.Windows.Forms.Label unknownTransferLabel;
+        private System.Windows.Forms.ComboBox unknownTransferAction;
+        private System.Windows.Forms.CheckBox dimDuringJump;
+        private System.Windows.Forms.CheckBox screenOffOnClose;
 
         private System.Windows.Forms.ComboBox comboBox1;
 

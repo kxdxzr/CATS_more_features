@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'TraversalSystem'))
 from journalwatcher import JournalWatcher, UTC
 from runtimecontrol import RuntimeControl, ControlledInput, Stopped
+from cargo_snapshot import read_snapshot, classify_change
 
 
 class JournalTests(unittest.TestCase):
@@ -67,6 +68,68 @@ class JournalTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'cancelled'):
             watcher.get_jumped()
 
+    def test_pending_jump_expires_30_minutes_after_departure(self):
+        departure = self.now - dt.timedelta(minutes=10)
+        self.write('CarrierJumpRequest', self.now - dt.timedelta(minutes=25), CarrierID=42,
+                   SystemName='Target', DepartureTime=departure.isoformat())
+        watcher = JournalWatcher()
+        watcher.initialize(self.directory)
+        self.assertIsNone(watcher.readiness(self.now)[1])
+        self.assertIsNone(watcher.readiness(departure + dt.timedelta(minutes=30))[1])
+        self.assertEqual(watcher.readiness(departure + dt.timedelta(minutes=30, seconds=1)), ('ready', 0))
+        self.assertIsNone(watcher.pending)
+
+    def test_pending_jump_with_invalid_departure_is_not_guessed_expired(self):
+        watcher = JournalWatcher()
+        watcher.pending = {'DepartureTime': 'invalid'}
+        self.assertIsNone(watcher.readiness(self.now)[1])
+        self.assertIsNotNone(watcher.pending)
+
+    def test_pending_jump_countdown_and_departure_not_arrival(self):
+        watcher = JournalWatcher()
+        watcher.pending = {'SystemName': 'Target', 'DepartureTime': (self.now + dt.timedelta(seconds=90)).isoformat()}
+        self.assertEqual(watcher.pending_jump_countdown(self.now), ('Target', 90))
+        self.assertEqual(watcher.pending_jump_countdown(self.now + dt.timedelta(seconds=100)), ('Target', 0))
+        self.assertIsNone(watcher.readiness(self.now + dt.timedelta(seconds=100))[1])
+        watcher.pending = {'DepartureTime': 'invalid'}
+        self.assertIsNone(watcher.pending_jump_countdown(self.now))
+
+    def test_existing_jump_identity_requires_matching_confirmed_arrival(self):
+        watcher = JournalWatcher()
+        watcher.initialize(self.directory)
+        self.write('CarrierJumpRequest', self.now, CarrierID=42, SystemName='Target',
+                   DepartureTime=(self.now + dt.timedelta(minutes=1)).isoformat())
+        watcher.process_journal(self.file)
+        identity = watcher.pending_jump_identity()
+        self.assertFalse(watcher.arrival_matches(identity))
+        self.arrive(self.now + dt.timedelta(minutes=1), system='Other')
+        watcher.process_journal(self.file)
+        self.assertFalse(watcher.arrival_matches(identity))
+        self.arrive(self.now + dt.timedelta(minutes=2), system='Target')
+        watcher.process_journal(self.file)
+        self.assertTrue(watcher.arrival_matches(identity))
+
+    def test_existing_cancelled_jump_does_not_trigger_refuel_match(self):
+        watcher = JournalWatcher()
+        watcher.initialize(self.directory)
+        self.write('CarrierJumpRequest', self.now, CarrierID=42, SystemName='Target',
+                   DepartureTime=(self.now + dt.timedelta(minutes=1)).isoformat())
+        watcher.process_journal(self.file)
+        identity = watcher.pending_jump_identity()
+        self.write('CarrierJumpCancelled', self.now + dt.timedelta(seconds=10), CarrierID=42)
+        watcher.process_journal(self.file)
+        self.assertFalse(watcher.arrival_matches(identity))
+
+    def test_transfer_marker_ignores_history_and_tracks_new_events(self):
+        self.write('CargoTransfer', Transfers=[{'Type': 'steel', 'Direction': 'toship', 'Count': 1}])
+        watcher = JournalWatcher()
+        watcher.initialize(self.directory)
+        marker = watcher.cargo_transfer_marker()
+        self.assertEqual(watcher.cargo_transfers_since(marker), [])
+        self.write('CargoTransfer', Transfers=[{'Type': 'tritium', 'Direction': 'toship', 'Count': 20}])
+        watcher.process_journal(self.file)
+        self.assertEqual(watcher.cargo_transfers_since(marker)[0][1][0]['Type'], 'tritium')
+
     def test_partial_event_and_rotation_preserve_pending_jump(self):
         watcher = JournalWatcher()
         watcher.initialize(self.directory)
@@ -88,16 +151,135 @@ class JournalTests(unittest.TestCase):
 
 
 class ControlTests(unittest.TestCase):
+    def test_existing_jump_refuels_once_only_after_confirmed_arrival(self):
+        source = ast.parse((ROOT / 'TraversalSystem/main.py').read_text(encoding='utf-8'))
+        node = next(n for n in source.body if isinstance(n, ast.FunctionDef) and n.name == 'wait_for_carrier_ready')
+        for enabled, confirmed, expected in [(True, True, 1), (False, True, 0), (True, False, 0)]:
+            with self.subTest(enabled=enabled, confirmed=confirmed):
+                watcher = Mock()
+                watcher.readiness.side_effect = [('jump in progress', None), ('cooldown', 150), ('ready', 0)]
+                watcher.pending_jump_identity.side_effect = [('Target', 'request'), None, None]
+                watcher.pending_jump_countdown.return_value = ('Target', 5)
+                watcher.arrival_matches.return_value = confirmed
+                refuel = Mock()
+                class InlineThread:
+                    def __init__(self, target, daemon): self.target = target
+                    def start(self): self.target()
+                    def is_alive(self): return False
+                scope = dict(control=Mock(), journal_watcher=watcher, latest_journal=Mock(),
+                             auto_plot_jumps=True, disable_refuel=not enabled, restock_tritium=refuel,
+                             threading=SimpleNamespace(Thread=InlineThread), datetime=dt,
+                             time=SimpleNamespace(sleep=Mock()), print=Mock())
+                exec(compile(ast.Module(body=[node], type_ignores=[]), '<wait>', 'exec'), scope)
+                scope['wait_for_carrier_ready'](refuel_existing_jump=True)
+                self.assertEqual(refuel.call_count, expected)
+
+    def test_route_dimming_stays_active_through_navigation_and_refuel(self):
+        source = ast.parse((ROOT / 'TraversalSystem/main.py').read_text(encoding='utf-8'))
+        main = next(n for n in source.body if isinstance(n, ast.FunctionDef) and n.name == 'main_loop')
+        game = next(n for n in source.body if isinstance(n, ast.FunctionDef) and n.name == 'open_game')
+        def calls(node, name):
+            return [n for n in ast.walk(node) if isinstance(n, ast.Call) and
+                    ((isinstance(n.func, ast.Name) and n.func.id == name) or
+                     (isinstance(n.func, ast.Attribute) and n.func.attr == name))]
+        dim = calls(main, 'dim')
+        self.assertEqual(len(dim), 1)
+        self.assertLess(dim[0].lineno, calls(main, 'wait_for_scheduled_start')[0].lineno)
+        self.assertFalse(calls(game, 'restore_displays'))
+        loop = next(n for n in main.body if isinstance(n, ast.For) and isinstance(n.target, ast.Name)
+                    and n.target.id == 'i' and isinstance(n.iter, ast.Call))
+        # Error handlers can restore immediately; ordinary route iterations cannot.
+        restores = calls(loop, 'restore_displays')
+        self.assertEqual(len(restores), 1)
+        self.assertTrue(any(restores[0] in ast.walk(handler) for n in ast.walk(loop)
+                            if isinstance(n, ast.Try) for handler in n.handlers))
+
+    def test_cargo_snapshot_change_and_invalid_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'Cargo.json'
+            def write(items, timestamp='2026-11-16T14:31:40Z'):
+                path.write_text(json.dumps(dict(timestamp=timestamp, event='Cargo', Vessel='Ship',
+                    Count=sum(items.values()), Inventory=[dict(Name=k, Count=v) for k, v in items.items()])), encoding='utf-8')
+                return read_snapshot(directory)
+            baseline = write({'tritium': 5})
+            tritium = write({'tritium': 30}, '2026-11-16T14:31:41Z')
+            self.assertEqual(classify_change(baseline, tritium), 'tritium')
+            mixed = write({'tritium': 30, 'steel': 4}, '2026-11-16T14:31:42Z')
+            self.assertEqual(classify_change(baseline, mixed), 'wrong')
+            self.assertEqual(classify_change(baseline, baseline), 'unknown')
+            self.assertEqual(classify_change(None, mixed), 'unknown')
+            path.write_text('{broken', encoding='utf-8')
+            self.assertIsNone(read_snapshot(directory))
+
+    def test_display_brightness_saves_and_restores_without_real_hardware(self):
+        from display_control import WindowsBrightness
+        import ctypes
+        manager = WindowsBrightness()
+        calls = []
+        def powershell(script):
+            calls.append(script)
+            return '[{"InstanceName":"DISPLAY_TEST","CurrentBrightness":74,"Level":[0,10,100]}]' if 'WmiMonitorBrightness |' in script else ''
+        dxva = Mock()
+        def get_brightness(handle, low, current, high):
+            low._obj.value, current._obj.value, high._obj.value = 3, 65, 100
+            return True
+        dxva.GetMonitorBrightness.side_effect = get_brightness
+        dxva.SetMonitorBrightness.return_value = True
+        manager._powershell = powershell
+        manager._monitors = lambda operation: (operation(dxva, 123, 0, SimpleNamespace(handle=456, description='fake')) or [])
+        manager.dim()
+        self.assertEqual(dxva.SetMonitorBrightness.call_args.args, (456, 3))
+        self.assertIn('Brightness=[byte]0', calls[-1])
+        manager.restore()
+        self.assertEqual(dxva.SetMonitorBrightness.call_args.args, (456, 65))
+        self.assertIn('Brightness=[byte]74', calls[-1])
+        self.assertFalse(manager.saved_ddc or manager.saved_wmi)
+
+    def test_extracted_cargo_classification_and_mixed_transfer(self):
+        source = ast.parse((ROOT / 'TraversalSystem/main.py').read_text(encoding='utf-8'))
+        node = next(n for n in source.body if isinstance(n, ast.FunctionDef) and n.name == 'check_extracted_cargo')
+        for transfers, expected in [([{'Type': 'steel', 'Direction': 'toship'}], 'wrong'),
+                                    ([{'Type': 'tritium', 'Direction': 'toship'}], 'tritium'),
+                                    ([{'Type': 'steel', 'Direction': 'tocarrier'}], 'unknown'),
+                                    ([{'Type': 'tritium', 'Direction': 'toship'}, {'Type': 'steel', 'Direction': 'toship'}], 'wrong'),
+                                    ([{'Direction': 'toship'}], 'unknown')]:
+            with self.subTest(transfers=transfers):
+                watcher = Mock()
+                watcher.cargo_transfers_since.return_value = [(1, transfers)]
+                scope = dict(time=SimpleNamespace(monotonic=Mock(side_effect=[0, 10]), sleep=Mock()),
+                             journal_watcher=watcher, latest_journal=Mock(), print=Mock(),
+                             classify_change=Mock(return_value='unknown'), read_snapshot=Mock(), journal_directory='unused')
+                exec(compile(ast.Module(body=[node], type_ignores=[]), '<cargo-check>', 'exec'), scope)
+                self.assertEqual(scope['check_extracted_cargo'](0), expected)
+
+    def test_snapshot_fallback_and_conflicting_evidence(self):
+        source = ast.parse((ROOT / 'TraversalSystem/main.py').read_text(encoding='utf-8'))
+        node = next(n for n in source.body if isinstance(n, ast.FunctionDef) and n.name == 'check_extracted_cargo')
+        for events, snapshot, expected in [([], 'tritium', 'tritium'), ([], 'unknown', 'unknown'),
+                                          ([(1, [{'Type': 'tritium', 'Direction': 'toship'}])], 'wrong', 'wrong')]:
+            with self.subTest(snapshot=snapshot):
+                watcher = Mock()
+                watcher.cargo_transfers_since.return_value = events
+                scope = dict(time=SimpleNamespace(monotonic=Mock(side_effect=[0, 10]), sleep=Mock()),
+                             journal_watcher=watcher, latest_journal=Mock(), print=Mock(),
+                             classify_change=Mock(return_value=snapshot), read_snapshot=Mock(), journal_directory='unused')
+                exec(compile(ast.Module(body=[node], type_ignores=[]), '<cargo-check>', 'exec'), scope)
+                self.assertEqual(scope['check_extracted_cargo'](0, object()), expected)
+
     def test_refuel_test_bypasses_disabled_option_without_route_or_shutdown(self):
         source = ast.parse((ROOT / 'TraversalSystem/main.py').read_text(encoding='utf-8'))
         funcs = [n for n in source.body if isinstance(n, ast.FunctionDef) and n.name in ('restock_tritium', 'run_refuel_test')]
         sequence, settings, sleep, system = Mock(), Mock(), Mock(), Mock()
         scope = dict(load_settings=settings, follow_button_sequence=sequence,
                      auto_plot_jumps=False, disable_refuel=True, refuel_mode=2, tritium_slot=2,
+                     warehouse_extraction_blocked=False, unknown_transfer_policy='stop',
+                     journal_watcher=Mock(), journal_directory='unused', latest_journal=Mock(return_value='journal'),
+                     read_snapshot=Mock(),
                      os=SimpleNamespace(path=SimpleNamespace(isfile=lambda path: True), system=system),
                      pydirectinput=Mock(), time=SimpleNamespace(sleep=sleep),
                      slight_random_time=lambda x: x, print=Mock())
         exec(compile(ast.Module(body=funcs, type_ignores=[]), '<refuel-test>', 'exec'), scope)
+        scope['check_extracted_cargo'] = Mock(return_value='tritium')
         scope['restock_tritium']()
         sequence.assert_not_called()
         self.assertTrue(scope['run_refuel_test']())
@@ -107,11 +289,37 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(scope['pydirectinput'].press.call_count, 2)
         system.assert_not_called()
 
+    def test_wrong_or_unknown_transfer_policy_and_depot_only(self):
+        source = ast.parse((ROOT / 'TraversalSystem/main.py').read_text(encoding='utf-8'))
+        node = next(n for n in source.body if isinstance(n, ast.FunctionDef) and n.name == 'restock_tritium')
+        for result, policy, blocked in [('wrong', 'ignore', True), ('wrong', 'stop', True),
+                                        ('unknown', 'stop', True), ('unknown', 'ignore', False),
+                                        ('tritium', 'stop', False)]:
+            with self.subTest(result=result, policy=policy):
+                sequence = Mock()
+                scope = dict(auto_plot_jumps=True, disable_refuel=False, refuel_mode=2, tritium_slot=0,
+                             warehouse_extraction_blocked=False, unknown_transfer_policy=policy,
+                             journal_watcher=Mock(), latest_journal=Mock(return_value='journal'),
+                             read_snapshot=Mock(), journal_directory='unused',
+                             check_extracted_cargo=Mock(return_value=result), follow_button_sequence=sequence,
+                             os=SimpleNamespace(path=SimpleNamespace(isfile=lambda p: True)),
+                             pydirectinput=Mock(), time=SimpleNamespace(sleep=Mock()), print=Mock())
+                exec(compile(ast.Module(body=[node], type_ignores=[]), '<refuel>', 'exec'), scope)
+                scope['restock_tritium']()
+                self.assertEqual(scope['warehouse_extraction_blocked'], blocked)
+                sequence.reset_mock()
+                scope['restock_tritium']()
+                if blocked:
+                    self.assertEqual([c.args[0] for c in sequence.call_args_list], ['squadron/restock_fc.txt'])
+                else:
+                    self.assertEqual(len(sequence.call_args_list), 3)
+
     def test_stop_releases_held_keys_saves_and_blocks_further_input(self):
         control = RuntimeControl()
         keyboard = Mock()
         control.keyboard = keyboard
         control.save_progress = Mock()
+        control.restore_displays = Mock()
         guarded = ControlledInput(keyboard, control)
         guarded.keyDown('ctrl')
         with patch('runtimecontrol.os._exit', side_effect=SystemExit(3)):
@@ -119,6 +327,7 @@ class ControlTests(unittest.TestCase):
                 control.stop_and_exit()
         keyboard.keyUp.assert_called_once_with('ctrl', _pause=False)
         control.save_progress.assert_called_once()
+        control.restore_displays.assert_called_once()
         with self.assertRaises(Stopped):
             guarded.press('space')
         keyboard.press.assert_not_called()
@@ -170,6 +379,7 @@ class CompletionTests(unittest.TestCase):
                              threading=threads, tzlocal=SimpleNamespace(get_localzone=lambda: UTC),
                              journal_watcher=watcher, discord_messenger=Mock(), power_saving=power,
                              completion_action=action, route_file=str(route), disable_refuel=True, auto_plot_jumps=True,
+                             dim_during_jump=False, display_brightness=None,
                              webhook_url='', journal_directory=temp, control=RuntimeControl(), print=Mock())
                 exec(code, scope)
                 scope.update(load_settings=Mock(), wait_for_scheduled_start=Mock(), wait_for_carrier_ready=Mock(),
