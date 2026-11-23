@@ -1,10 +1,5 @@
 # CATS More Features — Experimental Fork
 
-> [!WARNING]
-> **This fork is under active testing and may contain many bugs.**
-> Scheduled start has been tested in game, but stopping, cooldown recovery, refuelling and completion actions
-> still need broader real-game testing. Passing automated tests does not guarantee reliable unattended operation.
-
 This is [kxdxzr's experimental fork](https://github.com/kxdxzr/CATS_more_features) of
 [mck-9061/CATS](https://github.com/mck-9061/CATS). The original CATS project and its authors deserve credit
 for the carrier administration and traversal functionality.
