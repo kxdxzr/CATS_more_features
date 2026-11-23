@@ -18,6 +18,8 @@ namespace MultiCarrierManager
         private DateTimePicker scheduleDate, scheduleTime;
         private Button scheduleNow, scheduleTenMinutes, scheduleHour;
         private Button refuelTestButton;
+        private Button completionTestButton;
+        private bool completionTestRunning;
         public CATSForm()
         {
             InitializeComponent();
@@ -123,6 +125,13 @@ namespace MultiCarrierManager
 
         private void runButton_Click(object sender, EventArgs e)
         {
+            if (Program.settings.PauseLeiGodOnComplete &&
+                !new System.Security.Principal.WindowsPrincipal(System.Security.Principal.WindowsIdentity.GetCurrent())
+                    .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator))
+            {
+                MessageBox.Show("LeiGod pause requires CATS to be started as administrator. Close CATS and restart it as administrator, or disable this option.", "CATS");
+                return;
+            }
             if (Program.settings.AutoPlot && !Program.settings.DisableRefuel)
             {
                 int slot;
@@ -178,7 +187,8 @@ namespace MultiCarrierManager
         public void TraversalFinished()
         {
             // Reload the backend's saved position before Run can write settings again.
-            populateComboBox(this, EventArgs.Empty);
+            if (!completionTestRunning) populateComboBox(this, EventArgs.Empty);
+            completionTestRunning = false;
             stopButton.Enabled = false;
             runButton.Enabled = loadButton.Enabled = importButton.Enabled = true;
             refuelTestButton.Enabled = true;
@@ -192,6 +202,7 @@ namespace MultiCarrierManager
         {
             OptionsButton.Enabled = textBox2.Enabled = textBox3.Enabled = textBox5.Enabled = comboBox1.Enabled = enabled;
             refuelTestButton.Enabled = enabled;
+            completionTestButton.Enabled = enabled;
             scheduleEnabled.Enabled = scheduleNow.Enabled = scheduleTenMinutes.Enabled = scheduleHour.Enabled = enabled;
             scheduleDate.Enabled = scheduleTime.Enabled = enabled && scheduleEnabled.Checked;
         }
@@ -380,6 +391,9 @@ namespace MultiCarrierManager
             refuelTestButton = new Button { Name = "refuelTestButton", Text = "Test refuel...", Location = new System.Drawing.Point(542, 87), Size = new System.Drawing.Size(121, 23) };
             refuelTestButton.Click += RefuelTest_Click;
             Controls.Add(refuelTestButton);
+            completionTestButton = new Button { Name = "completionTestButton", Text = "Test completion...", Location = new System.Drawing.Point(860, 0), Size = new System.Drawing.Size(164, 20), Anchor = AnchorStyles.Top | AnchorStyles.Right };
+            completionTestButton.Click += CompletionTest_Click;
+            Controls.Add(completionTestButton);
             scheduleEnabled = new CheckBox { Name = "scheduleEnabled", Text = "Scheduled start", Location = new System.Drawing.Point(12, 478), Size = new System.Drawing.Size(110, 24) };
             scheduleDate = new DateTimePicker { Name = "scheduleDate", Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd", Location = new System.Drawing.Point(125, 480), Size = new System.Drawing.Size(132, 20) };
             scheduleTime = new DateTimePicker { Name = "scheduleTime", Format = DateTimePickerFormat.Custom, CustomFormat = "HH:mm:ss", ShowUpDown = true, Location = new System.Drawing.Point(265, 480), Size = new System.Drawing.Size(110, 20) };
@@ -395,6 +409,35 @@ namespace MultiCarrierManager
             scheduleNow.Click += (s, e) => SetSchedule(DateTime.Now);
             scheduleTenMinutes.Click += (s, e) => SetSchedule(DateTime.Now.AddMinutes(10));
             scheduleHour.Click += (s, e) => SetSchedule(DateTime.Now.AddHours(1));
+        }
+
+        private void CompletionTest_Click(object sender, EventArgs e)
+        {
+            if (cats == null || cats.isRunning) return;
+            if (!Program.settings.PauseLeiGodOnComplete)
+            {
+                MessageBox.Show("Enable 'Pause LeiGod on completion' in Options before testing.", "CATS");
+                return;
+            }
+            if (!new System.Security.Principal.WindowsPrincipal(System.Security.Principal.WindowsIdentity.GetCurrent())
+                    .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator))
+            {
+                MessageBox.Show("Close CATS and restart it as administrator before testing LeiGod pause.", "CATS");
+                return;
+            }
+            if (MessageBox.Show("This test will really bring LeiGod to the foreground and attempt to pause its account time. It can interrupt acceleration for other games.\n\nGame closure, CATS exit, display power-off and shutdown are simulated only.\n\nContinue?",
+                "Test completion", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            stopButton.Enabled = true;
+            runButton.Enabled = loadButton.Enabled = importButton.Enabled = button2.Enabled = button3.Enabled = false;
+            SetRunSettingsEnabled(false);
+            Program.logger.Log("CompletionTestStarted (real LeiGod pause; other actions simulated)");
+            completionTestRunning = true;
+            try { cats.run_cmd(completionTest: true); }
+            catch (Exception error)
+            {
+                TraversalFinished();
+                MessageBox.Show("Cannot start completion test: " + error.Message, "CATS");
+            }
         }
 
         private void RefuelTest_Click(object sender, EventArgs e)

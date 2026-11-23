@@ -37,6 +37,7 @@ class GuiChecks
                 var time = (DateTimePicker)form.Controls.Find("scheduleTime", true)[0];
                 var enabled = (CheckBox)form.Controls.Find("scheduleEnabled", true)[0];
                 Check(form.Controls.Find("refuelTestButton", true).Length == 1, "Refuel test button missing");
+                Check(form.Controls.Find("completionTestButton", true).Length == 1, "Completion test button missing");
                 var routeBox = form.Controls.Find("textBox2", true)[0];
                 var startBox = form.Controls.Find("comboBox1", true)[0];
                 var scheduleHelp = form.Controls.Find("label9", true)[0];
@@ -73,10 +74,19 @@ class GuiChecks
                         Invoke(options, "OptionsForm_Load", null, EventArgs.Empty);
                         var choices = (ComboBox)options.Controls.Find("completionAction", true)[0];
                         Check(choices.SelectedIndex == Array.IndexOf(new[] { "keep-open", "close-apps", "shutdown" }, action), "Options selection failed");
+                        Check(options.Controls.Find("pauseLeiGod", true).Length == 1, "LeiGod option missing");
                     }
                 }
                 var output = (TextBox)form.Controls.Find("textBox1", true)[0];
-                var cats = new CatSitter(output, form, new Label(), new Label());
+                var countdown = new Label();
+                var eta = new Label { Text = "ETA: route completion" };
+                var cats = new CatSitter(output, form, countdown, eta);
+                output.Clear();
+                Invoke(cats, "HandleOutput", "CATS_COUNTDOWN:Scheduled start: 0:09:59");
+                Check(countdown.Text == "Scheduled start: 0:09:59", "Scheduled countdown not shown");
+                Check(output.Text == "" && eta.Text == "ETA: route completion", "Countdown polluted log or route ETA");
+                Invoke(cats, "HandleOutput", "CATS_COUNTDOWN:Current jump: 0:05:00");
+                Check(countdown.Text == "Current jump: 0:05:00" && output.Text == "", "Existing jump countdown failed");
                 foreach (string phase in new [] { "navigation", "countdown", "scheduled", "cooperative" })
                 {
                     File.WriteAllText("CATS/mode.txt", phase);

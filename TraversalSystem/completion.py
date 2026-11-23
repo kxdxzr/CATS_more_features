@@ -3,8 +3,54 @@ import ctypes
 from ctypes import wintypes
 import time
 import psutil
+import os
+from leigod_pause import pause as pause_leigod
 
 GAME_NAMES = {"elitedangerous64.exe", "elitedangerous.exe"}
+
+
+def execute_completion(action, pause_enabled, control, dry_run=False, screen_off=False, test_real_pause=False):
+    """Run completion actions, or the same decision path with all effects suppressed."""
+    if action not in ('keep-open', 'close-apps', 'shutdown'):
+        raise ValueError('Invalid completion action')
+    control.check()
+    if dry_run:
+        print('TEST: route completed; would restore display brightness.', flush=True)
+    if pause_enabled:
+        control.check()
+        try:
+            paused = pause_leigod(control, dry_run=dry_run and not test_real_pause)
+        except Exception as error:
+            paused = False
+            print('WARNING: LeiGod pause failed: %s' % error, flush=True)
+        if not paused:
+            print('WARNING: LeiGod pause unconfirmed; continuing completion action.', flush=True)
+    else:
+        print(('TEST: ' if dry_run else '') + 'LeiGod pause disabled.', flush=True)
+    control.check()
+    if action == 'close-apps':
+        if dry_run:
+            print('TEST: would close Elite Dangerous and CATS.', flush=True)
+            if screen_off:
+                print('TEST: would request display power-off after CATS exits.', flush=True)
+        else:
+            close_game(control)
+            control.check()
+            print('CATS_COMPLETION_CLOSE', flush=True)
+    elif action == 'shutdown':
+        if dry_run:
+            print('TEST: would schedule shutdown in 30 seconds. No shutdown requested.', flush=True)
+        else:
+            print("Shutting down system in 30 seconds... (run 'shutdown /a' to cancel)", flush=True)
+            control.sleep(5)
+            with control.lock:
+                control.check()
+                if os.system('shutdown /s /t 30') != 0:
+                    print('Failed to schedule shutdown.', flush=True)
+                    return False
+    else:
+        print(('TEST: ' if dry_run else '') + 'Keep game and CATS open.', flush=True)
+    return True
 
 
 def close_game(control):

@@ -45,13 +45,14 @@ def check_frozen_stop(sandbox, phase):
     res = run / 'res.csv'
     res.write_text(res.read_text(encoding='utf-8').rstrip() + '\n%d,%d,1,1,1,1,1\n' % (width, height), encoding='utf-8')
     env = dict(os.environ, CATS_CONTROL_STDIN='1')
-    process = subprocess.Popen([str(ROOT.parent / 'build/TraversalSystem-new.exe')], cwd=run, env=env,
+    backend = Path(os.environ.get('CATS_TEST_BACKEND', ROOT.parent / 'build/TraversalSystem-new.exe'))
+    process = subprocess.Popen([str(backend)], cwd=run, env=env,
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                encoding='utf-8', bufsize=1)
     lines = queue.Queue()
     threading.Thread(target=lambda: [lines.put(line) for line in process.stdout], daemon=True).start()
     try:
-        expected = 'Waiting...' if phase == 'schedule' else 'Waiting for carrier cooldown'
+        expected = 'CATS_COUNTDOWN:Scheduled start:' if phase == 'schedule' else 'CATS_COUNTDOWN:Cooldown:'
         output = ''
         while expected not in output:
             try:
@@ -78,7 +79,7 @@ with tempfile.TemporaryDirectory(dir=TEMP) as temporary:
     backend_dir.mkdir(parents=True)
     (sandbox / 'settings').mkdir()
     (sandbox / 'settings/settings.ini').write_text('auto-plot-jumps=True\nopen-to-traversal=True\nget-tritium=False\ndisable-refuel=True\npower-saving=False\nrefuel-mode=0\nsingle-discord-message=False\nscheduled-start=2026-10-15 21:30\nshutdown-on-complete=True\n', encoding='utf-8')
-    built = ROOT / 'MultiCarrierManager/bin/Release'
+    built = Path(os.environ.get('CATS_TEST_GUI_DIR', ROOT / 'MultiCarrierManager/bin/Release'))
     for file in built.iterdir():
         if file.is_file() and file.suffix in ('.exe', '.dll', '.config'):
             shutil.copy2(file, sandbox / file.name)
@@ -91,3 +92,14 @@ with tempfile.TemporaryDirectory(dir=TEMP) as temporary:
     subprocess.run([str(runner)], cwd=sandbox, check=True, timeout=90)
     check_frozen_stop(sandbox, 'schedule')
     check_frozen_stop(sandbox, 'cooldown')
+    (sandbox / 'settings/settings.ini').write_text(
+        'completion-action=shutdown\npause-leigod-on-complete=True\nscreen-off-on-close=True\n',
+        encoding='utf-8')
+    backend = Path(os.environ.get('CATS_TEST_BACKEND', ROOT.parent / 'build/TraversalSystem-new.exe'))
+    result = subprocess.run([str(backend), '--completion-test'], cwd=sandbox / 'CATS',
+                            capture_output=True, text=True, encoding='utf-8', timeout=30)
+    assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
+    assert 'TEST: would attempt LeiGod pause' in result.stdout
+    assert 'TEST: would schedule shutdown' in result.stdout
+    assert 'CATS_COMPLETION_CLOSE' not in result.stdout
+    print('PASS: real onefile completion simulation (no real actions)')
