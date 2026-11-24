@@ -342,6 +342,23 @@ class CompletionTests(unittest.TestCase):
             self.assertTrue(leigod_pause.pause(RuntimeControl(), dry_run=True))
             spawn.assert_not_called()
 
+    def test_leigod_uses_dpi_aware_helper_and_normalised_layout(self):
+        import leigod_pause
+        import base64
+        process = Mock(returncode=0)
+        process.poll.return_value = 0
+        process.communicate.return_value = (b'VISUALLY_PAUSED', b'')
+        with patch.object(leigod_pause.ctypes, 'windll', SimpleNamespace(
+                shell32=SimpleNamespace(IsUserAnAdmin=lambda: True))), \
+                patch.object(leigod_pause.subprocess, 'Popen', return_value=process) as spawn:
+            self.assertTrue(leigod_pause.pause(RuntimeControl()))
+        args = spawn.call_args.args[0]
+        script = base64.b64decode(args[args.index('-EncodedCommand') + 1]).decode('utf-16le')
+        self.assertIn('SetProcessDpiAwarenessContext([IntPtr](-4))', script)
+        self.assertIn('$logicalW=$w*96.0/$dpi', script)
+        self.assertLess(script.index('SetProcessDpiAwarenessContext([IntPtr](-4))'),
+                        script.index('$windows=@(Get-Process'))
+
     def test_simulated_completion_never_calls_real_actions(self):
         import completion
         for action in ('keep-open', 'close-apps', 'shutdown'):

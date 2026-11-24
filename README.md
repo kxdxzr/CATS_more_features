@@ -119,8 +119,9 @@ The optional `Pause LeiGod on completion` setting is off by default. Run CATS as
 using it. Only after successful route completion, CATS tries to bring the existing LeiGod window forward,
 recognise the red pause button, click once and wait for the button to turn white. It does not need account
 credentials. This is visual evidence only, not independent verification of server-side billing.
-The experimental recogniser only accepts the observed 1020-by-636/638 layout, checks that the button
-is visible and refuses to click on uncertain state. It may fail due to DPI, UI updates, overlay, locking,
+The experimental recogniser uses per-monitor DPI awareness and only accepts the observed approximately
+1020-by-636/638 logical layout, checks that the button is visible and refuses to click on uncertain state.
+It may fail due to DPI configurations, UI updates, overlay, locking,
 full-screen games or Windows focus restrictions. Never rely on it without supervised verification.
 Stop and failures do not initiate the completion action. If pausing fails or is unconfirmed, the selected
 completion action still proceeds, including shutdown if selected.

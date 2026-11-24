@@ -7,6 +7,7 @@ import time
 
 SCRIPT = r"""
 $ErrorActionPreference='Stop'
+$ProgressPreference='SilentlyContinue'
 Add-Type -AssemblyName System.Drawing
 Add-Type -TypeDefinition @'
 using System; using System.Runtime.InteropServices;
@@ -21,25 +22,46 @@ public static class LeiUi {
  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out R r);
+ [DllImport("user32.dll",SetLastError=true)] public static extern bool SetProcessDpiAwarenessContext(IntPtr c);
+ [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
  [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(P p);
  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
  [DllImport("user32.dll")] public static extern void mouse_event(uint f,uint x,uint y,uint d,UIntPtr e);
 }
 '@
 function ReadButton($hwnd,$pidExpected) {
- if ([LeiUi]::GetForegroundWindow() -ne $hwnd) { return 'unknown' }
+ if ([LeiUi]::GetForegroundWindow() -ne $hwnd) {
+  [Console]::Error.WriteLine('LeiGod check: window is not foreground.')
+  return 'unknown'
+ }
  $r=New-Object LeiUi+R
- if (-not [LeiUi]::GetWindowRect($hwnd,[ref]$r)) { return 'unknown' }
+ if (-not [LeiUi]::GetWindowRect($hwnd,[ref]$r)) {
+  [Console]::Error.WriteLine('LeiGod check: could not read window rectangle.')
+  return 'unknown'
+ }
  $w=$r.Ri-$r.L; $h=$r.B-$r.T
- # Only the layout actually observed during the supervised test is accepted.
- if ($w -lt 1000 -or $w -gt 1040 -or $h -lt 615 -or $h -gt 660) { return 'unknown' }
+ $dpi=[LeiUi]::GetDpiForWindow($hwnd)
+ if ($dpi -lt 72 -or $dpi -gt 384) {
+  [Console]::Error.WriteLine('LeiGod check: invalid or unavailable window DPI.')
+  return 'unknown'
+ }
+ # The captured pixels and rectangle are physical coordinates. Compare a
+ # DPI-normalised window size against the one supervised layout we observed.
+ $logicalW=$w*96.0/$dpi; $logicalH=$h*96.0/$dpi
+ if ($logicalW -lt 1000 -or $logicalW -gt 1040 -or $logicalH -lt 615 -or $logicalH -gt 660) {
+  [Console]::Error.WriteLine(('LeiGod check: unsupported window layout (physical {0}x{1}, DPI {2}, logical {3:F1}x{4:F1}).' -f $w,$h,$dpi,$logicalW,$logicalH))
+  return 'unknown'
+ }
  $x=[int]($r.L+$w*0.778); $y=[int]($r.T+$h*0.014)
  $cw=[int]($w*0.068); $ch=[int]($h*0.039)
  foreach ($dx in @(2,[int]($cw/2),($cw-3))) {
   foreach ($dy in @(2,[int]($ch/2),($ch-3))) {
    $pt=New-Object LeiUi+P; $pt.X=$x+$dx; $pt.Y=$y+$dy
    $owner=[uint32]0; [void][LeiUi]::GetWindowThreadProcessId([LeiUi]::WindowFromPoint($pt),[ref]$owner)
-   if ($owner -ne $pidExpected) { return 'unknown' }
+    if ($owner -ne $pidExpected) {
+     [Console]::Error.WriteLine('LeiGod check: button region is obstructed or outside the LeiGod process.')
+     return 'unknown'
+    }
   }
  }
  $bmp=[System.Drawing.Bitmap]::new($cw,$ch); $g=[System.Drawing.Graphics]::FromImage($bmp)
@@ -52,10 +74,14 @@ function ReadButton($hwnd,$pidExpected) {
   }}
   if($red -gt $cw*$ch*0.65){return 'red'}
   if($white -gt $cw*$ch*0.65){return 'white'}
+  [Console]::Error.WriteLine(('LeiGod check: button colour not recognised (DPI {0}, red {1}/{3}, white {2}/{3}).' -f $dpi,$red,$white,($cw*$ch)))
   return 'unknown'
  } finally { $g.Dispose(); $bmp.Dispose() }
 }
 try {
+ if (-not [LeiUi]::SetProcessDpiAwarenessContext([IntPtr](-4))) {
+  throw 'Could not enable per-monitor DPI awareness; refusing unsafe screen coordinates'
+ }
  $windows=@(Get-Process -Name leigod -ErrorAction SilentlyContinue | Where-Object {$_.MainWindowHandle -ne 0})
  if($windows.Count -ne 1){throw 'Expected exactly one LeiGod window'}
  $app=$windows[0]; $hwnd=$app.MainWindowHandle; $pidExpected=[uint32]$app.Id
